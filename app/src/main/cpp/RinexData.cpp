@@ -1123,7 +1123,7 @@ RinexData::RINEXlabel RinexData::getNextLabelId() {
  *<p>Header records data shall be cleared before processing any spacial event epoch with header records, that is, special
  *events having flag values 2, 3, 4 or 5. The reason is that when printing such events, after the epoch line they are printed
  *all header line records having data.
- *<p>In sumary, to process special event it will be encessary to perform the following steps:
+ *<p>In sumary, to process special event it will be necessary to perform the following steps:
  * -# clearHeaderData before setting any setting of header record data. It is assumed the before doing this step RINEX headers have been printed
  * -# setHdLnData for all records to be included in the special event
  * -# setEpochTime stating the event flag value for the epoch to be printed
@@ -1134,7 +1134,7 @@ void RinexData::clearHeaderData() {
 	wvlenFactor.clear();
 	dcbsApp.clear();
 	obsScaleFact.clear();
-	setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
+	//*setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 }
 
 /**obsV2toV3 provides the observable type name in V3 of a given V2 name 
@@ -1580,6 +1580,7 @@ void RinexData::printObsHeader(FILE* out) {
 		setLabelFlag(SYS);
 		setLabelFlag(TOBS, false);
 	}
+    setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	///Finally, for each observation header record belonging to the current version and having data defined, print it.
 	for (vector<LABELdata>::iterator it = labelDef.begin(); it != labelDef.end(); it++) {
 		if (((it->type & OBSMSK) != OBSNAP) && (it->ver == VALL || it->ver == version)) {
@@ -1611,17 +1612,20 @@ void RinexData::printObsEpoch(FILE* out) {
 		((POSITION-1)->sysIndex != POSITION->sysIndex) ||	\
 		((POSITION-1)->satellite != POSITION->satellite)
 
-	char timeBuffer[80];
+	char timeBuffer[80], clkOffsetBuffer[20];
 	vector<SatObsData>::iterator it;
 	int anInt;
-	bool clkPrinted = false;	//a flag to know if clock bias has been printed or not
-	//set the printable epoch time using format of the version to be printed.
+	bool clkOffsetPrinted = false;	//a flag to know if clock offset has been printed or not
+	clkOffsetBuffer[0] = 0;		//set an empty string in the buffer
+	//set the printable epoch time and clock offset using format of the version to be printed.
 	switch (version) {
 	case V210:	//RINEX version 2.10
 		formatGPStime (timeBuffer, 80, " %y %m %d %H %M", "%11.7f", epochWeek, epochTOW);
+		if((epochClkOffset < 99.999999999) && (epochClkOffset > -9.999999999)) sprintf(clkOffsetBuffer, "%12.9f", epochClkOffset);
 		break;
 	case V302:	//RINEX version 3.00
 		formatGPStime (timeBuffer, 80, "> %Y %m %d %H %M", "%11.7f", epochWeek, epochTOW);
+		if((epochClkOffset < 99.999999999999) && (epochClkOffset > -9.999999999999)) sprintf(clkOffsetBuffer, "%15.12f", epochClkOffset);
 		break;
 	default:
 		throw string(msgVerTBD);
@@ -1652,28 +1656,30 @@ void RinexData::printObsEpoch(FILE* out) {
 			//count the number of different satellites with data in this epoch (at least one)
 			nSatsEpoch = 1;
 			for (it = epochObs.begin()+1; it != epochObs.end(); it++) if (DIFFERENT_SAT(it)) nSatsEpoch++;
-	 		//print epoch 1st line
+	 		//start printing epoch 1st line
 	 		fprintf(out, "%s  %1d%3d", timeBuffer, epochFlag, nSatsEpoch);
 			//append the different systems and satellites existing in this epoch.
-			//if number of satellites is greather than 12, use continuation lines. Clock bias is printed only in the 1st one
+			//if number of satellites is greather than 12, use continuation lines. Clock offset is printed only in the 1st one
 			fprintf(out, "%1c%02d", systems[epochObs[0].sysIndex].system, epochObs[0].satellite);
 			anInt = 1;		//currently, the number of satellites already printed
 			for (it = epochObs.begin()+1; it != epochObs.end(); it++)
 				if (DIFFERENT_SAT(it)) {
-					if ((anInt % 12) == 0) fprintf(out, "\n%32c", ' '); //to print the 1st sat in a continuation line
+					if ((anInt % 12) == 0) fprintf(out, "\n%32c", ' '); //print the begining of a continuation line
 					fprintf(out, "%1c%02d", systems[it->sysIndex].system, it->satellite);
 					anInt++;
 					if (anInt == 12) {		//printed last sat in the 1st line
-						fprintf(out, "%12.9f", epochClkOffset);
-						clkPrinted = true;
+						//*fprintf(out, "%12.9f", epochClkOffset);
+						fprintf(out, "%s", clkOffsetBuffer);
+						clkOffsetPrinted = true;
 					}
 				}
 			while ((anInt % 12) != 0) {	//fill the line
 				fprintf(out, "%3c", ' ');
 				anInt++;
 			}
-			if (clkPrinted) fprintf(out, "\n");
-			else fprintf(out, "%12.9f\n", epochClkOffset);
+			if (clkOffsetPrinted) fprintf(out, "\n");
+			//else fprintf(out, "%12.9f\n", epochClkOffset);
+			else fprintf(out, "%s\n", clkOffsetBuffer);
 			//print epoch measurement lines. For each satellite in this epoch, print a line with their measurements, and remove them
 			while (printSatObsValues(out, 5));
 	 		break;
@@ -1684,7 +1690,8 @@ void RinexData::printObsEpoch(FILE* out) {
 			nSatsEpoch = 1;
 			for (it = epochObs.begin()+1; it != epochObs.end(); it++) if (DIFFERENT_SAT(it)) nSatsEpoch++;
 			//print epoch 1st line
- 			fprintf(out, "%s  %1d%3d%5c%15.12f%3c\n", timeBuffer, epochFlag, nSatsEpoch, ' ', epochClkOffset, ' ');
+ 			//*fprintf(out, "%s  %1d%3d%5c%15.12f%3c\n", timeBuffer, epochFlag, nSatsEpoch, ' ', epochClkOffset, ' ');
+            fprintf(out, "%s  %1d%3d%5c%s%3c\n", timeBuffer, epochFlag, nSatsEpoch, ' ', clkOffsetBuffer, ' ');
 			//for each satellite belonging to this epoch,  print a line with their measurements (they are removed just after printed)
 			do {
 				fprintf(out, "%1c%02d", systems[epochObs[0].sysIndex].system, epochObs[0].satellite);
@@ -1693,9 +1700,9 @@ void RinexData::printObsEpoch(FILE* out) {
  		}
 		break;
 	case 2:	//start moving antenna event
-	case 5:	//external event
 	case 3:	//new site occupation event
 	case 4:	//header information event
+    case 5:	//external event
 		//count the number of special records (header lines) to print
 		nSatsEpoch = 0;
 		for (vector<LABELdata>::iterator lit = labelDef.begin(); lit != labelDef.end(); lit++) {
@@ -1707,7 +1714,8 @@ void RinexData::printObsEpoch(FILE* out) {
 		if (nSatsEpoch > 0) {
 			//print the header lines that follow
 			for (vector<LABELdata>::iterator lit = labelDef.begin(); lit != labelDef.end(); lit++) {
-				if (lit->hasData && lit->labelID != EOH && ((lit->type & OBSMSK) != OBSNAP) && (lit->ver == VALL || lit->ver == version))
+                //*if (lit->hasData && lit->labelID != EOH && ((lit->type & OBSMSK) != OBSNAP) && (lit->ver == VALL || lit->ver == version))
+				if (lit->hasData && ((lit->type & OBSMSK) != OBSNAP) && (lit->ver == VALL || lit->ver == version))
 					printHdLineData(out, lit);
 			}
 		}
@@ -1781,6 +1789,7 @@ void RinexData::printNavHeader(FILE* out) {
 	fileTypeSfx = "AVIGATION DATA";
 	systemIdSfx = getSysDes(systemId);
 	setLabelFlag(VERSION);
+    setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	///Finally, for each navigation header record belonging to the current version and having data defined, it is printed.
 	for (vector<LABELdata>::iterator it = labelDef.begin(); it != labelDef.end(); it++) {
 		if (((it->type & NAVMSK) != NAVNAP) && (it->ver == VALL || it->ver == version)) {
@@ -2190,7 +2199,7 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
 	labelDef.push_back(LABELdata(DONTMATCH,	"Incorrect label for this RINEX version", VALL, NAP));
 	labelDef.push_back(LABELdata(LASTONE,	"Last item",	VALL, NAP));
 	labelIdIdx = 0;
-	setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
+	//*setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	//fill observable type names equivalence vector
 	obsNamEq.push_back(EQUIVobs("L1", "L1C"));
 	obsNamEq.push_back(EQUIVobs("L2", "L2P"));
@@ -2321,7 +2330,7 @@ string RinexData::fmtRINEXv3name(string designator, int week, double tow, char f
 	case 'O':
 	case 'o':
 		sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%02d%c_%cO.rnx",
-			(designator + "____").c_str(),
+			(designator + "----").c_str(),
 			mrkNum,
 			rcvNum,
 			country.c_str(),
@@ -2337,7 +2346,7 @@ string RinexData::fmtRINEXv3name(string designator, int week, double tow, char f
 		break;
 	case 'N':
 		sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%cN.rnx",
-			(designator + "____").c_str(),
+			(designator + "----").c_str(),
 			mrkNum,
 			rcvNum,
 			country.c_str(),
@@ -2391,7 +2400,6 @@ bool RinexData::getLabelFlag(RINEXlabel label) {
  */
 RinexData::RINEXlabel RinexData::checkLabel(char *line) {
 	//label shall be in columns 61 to 80 (index 60 to 79)
-	//debug//printf("checkLabel %d ", strlen(line));
 	if (strlen(line) < 61) return NOLABEL;
 	char *label = &line[60];
 	for (vector<LABELdata>::iterator it = labelDef.begin() ; it != labelDef.end(); ++it)
@@ -2869,7 +2877,6 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 				else fprintf(out, "%6c", ' ');
 			fprintf(out, "%-20.20s\n", valueLabel(labelId).c_str());
 		}
-
 		return;
 	case TOBS:		//"# / TYPES OF OBSERV"		V210
  		//it is assumed same observables and order for all systems

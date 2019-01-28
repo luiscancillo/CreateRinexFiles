@@ -102,21 +102,11 @@ const double L1CADJ = 1575420000.0;	//to adjust L1C (carrier phase in cycles) = 
 const double L1WLINV = 1575420000.0 / 299792458.0; //the inverse of L1 wave length to convert m/s to Hz.
 */
 const double ThisPI = 3.1415926535898;
-
 const long long NUMBER_NANOSECONDS_DAY = 24LL * 60LL * 60LL * 1000000000LL;
 const long long NUMBER_NANOSECONDS_WEEK = 7LL * NUMBER_NANOSECONDS_DAY;
-
-const double ECEF_A = 6378137.0;               //WGS-84 semi-major axis
-const double ECEF_E2 = 6.6943799901377997e-3;  //WGS-84 first eccentricity squared
-/*
-const double a1 = 4.2697672707157535e+4;  //a1 = a*e2
-const double a2 = 1.8230912546075455e+9;  //a2 = a1*a1
-const double a3 = 1.4291722289812413e+2;  //a3 = a1*e2/2
-const double a4 = 4.5577281365188637e+9;  //a4 = 2.5*a2
-const double a5 = 4.2840589930055659e+4;  //a5 = a1+a3
-const double a6 = 9.9330562000986220e-1;  //a6 = 1-e2
-*/
-const double dgrToRads = atan(1) / 45.0;   // = PI / 180 a factor to convert geo degrees to radiands
+const double ECEF_A = 6378137.0;			//WGS-84 semi-major axis
+const double ECEF_E2 = 6.69437999014e-3;	//WGS-84 first eccentricity squared
+const double dgrToRads = ThisPI / 180.0;    //a factor to convert degrees to radiands
 //Log messages
 const string LOG_MSG_ERROPEN("Error opening GRD file ");
 const string LOG_MSG_NINO("SATNAV record in OBS file");

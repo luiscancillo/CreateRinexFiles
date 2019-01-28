@@ -26,28 +26,22 @@ const string LOG_MSG_NAVFNS = "Navigation files not selected";
 const string LOG_MSG_NAVVER = "Nav version is not 2.10 or 3.02";
 const string LOG_MSG_INFILENOK = "Cannot open file ";
 const string LOG_MSG_OUTFILENOK = "Cannot create file ";
+const string LOG_MSG_LITE = "Function not implemented in This LITE version";
 
 //raw data file extensions
 const string obsExt = ".ORD";
 const string navExt = ".NRD";
-//return data
+//return codes
 const unsigned int RET_ERR_OPENRAW = 1;
 const unsigned int RET_ERR_READRAW = 2;
 const unsigned int RET_ERR_CREOBS = 4;
 const unsigned int RET_ERR_WRIOBS = 8;
 const unsigned int RET_ERR_CRENAV = 16;
-const unsigned int RET_ERR_WRINAVM = 32;
-const unsigned int RET_ERR_WRINAVG = 64;
-const unsigned int RET_ERR_WRINAVR = 128;
-const unsigned int RET_ERR_WRINAVS = 256;
-const string RET_MSG_OK = "0; RINEX file(s) generated";
-const string RET_MSG_ERR = "; RINEX file(s) errors ";
-
+const unsigned int RET_ERR_WRINAV = 32;
 //defined below
 int generateRINEXobs(vector<string> rnxPar, string inName, FILE* inFile, string rinexPath, Logger* plog);
 void setHdData(RinexData &rinex, GNSSdataFromGRD &gnssRaw, Logger* plog, vector<string> rnxPar);
 bool printNavFile(RinexData rinex, string inNavFileNamePrefix, string outfilesFullPath, Logger* plog);
-string getErrMsg(unsigned int errCode);
 /**
  * generateRinexFilesJNI is the interface routine with the Java application toRINEX.
  * It is called to generate RINEX files using data acquired from the GNSS receiver (which
@@ -146,7 +140,7 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
                 }
             }
         } else {
-            /// 4.2 -create a unique RINEX V3 file containing observation data from all raw data files
+            /// 4.2 -create a unique RINEX file containing observation data from all raw data files
             //extract from the first input file RINEX header data
             if (gnssRaw.openInputGRD(infilesFullPath, inObsFileNames[0])) {
                 log.info(LOG_MSG_PRCHFF + infilesFullPath + inObsFileNames[0]);
@@ -204,54 +198,10 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
     /// If version is V3.01, one navigation RINEX file can be generated with data from several constellations.
     /// If version to print is V2.10 one navigation RINEX file would be generated for each constellation having data.
     if (!inNavFileNames.empty()) {
-        log.info(LOG_MSG_GENNAV);
-        /// 5.1 -get navigationn data from NRD files
-        for (int i = 0; i < inNavFileNames.size(); ++i) {
-            //open input raw data file
-            if (gnssRaw.openInputGRD(infilesFullPath, inNavFileNames[i])) {
-                log.info(LOG_MSG_PRCHFF + infilesFullPath + inNavFileNames[i]);
-                setHdData(rinex, gnssRaw, &log, vrinexParams);   //set RINEX header records
-                gnssRaw.rewindInputGRD();
-                if (gnssRaw.collectNavData(rinex)) {
-                    log.info(LOG_MSG_PRCD + inNavFileNames[i]);
-                } else {
-                    log.warning(LOG_MSG_INFILENOK + inNavFileNames[i]);
-                    retError |= RET_ERR_READRAW;
-                }
-                gnssRaw.closeInputGRD();
-            } else {
-                log.warning(LOG_MSG_INFILENOK + inNavFileNames[i]);
-                retError |= RET_ERR_OPENRAW;
-            }
-        }
-        /// 5.2 -create RINEX files containing navigation data from raw data files
-        double ver;
-        char sysId;
-        char fileType;
-        rinex.getHdLnData(rinex.VERSION, ver, fileType, sysId);
-        //TBD selsystem?
-        if (ver == 2.10) {
-            ///If version is V2.10, a navigation RINEX will be created for each constellation
-            ///but constellation can be GPS, GLONASS or SBAS
-            char constNav[] = {'G', 'R', 'S'};
-            for (int i = 0; i < 3; ++i) {
-                if (rinex.hasNavEpochs(constNav[i])) {
-                    rinex.setHdLnData(rinex.VERSION, ver, 'N', constNav[i]);
-                    if(!printNavFile(rinex, "PT" + inNavFileNames[0].substr(5, 2), outfilesFullPath, &log))
-                        retError |= RET_ERR_WRINAVG<<i;
-                }
-            }
-        } else if (ver == 3.02) {
-            /// If version is V3.02, a unique navigation RINEX will containt all nav data
-            rinex.setHdLnData(rinex.VERSION, ver, 'N', 'M');
-            if (!printNavFile(rinex, "PT" + inNavFileNames[0].substr(5, 2), outfilesFullPath, &log))
-                retError |= RET_ERR_WRINAVM;
-        } else {
-            log.severe(LOG_MSG_NAVVER);
-            retError |= RET_ERR_OPENRAW;
-        }
+        log.info(LOG_MSG_LITE);
+        retError |= RET_ERR_CRENAV;
     } else log.info(LOG_MSG_NAVFNS);
-    return env->NewStringUTF(getErrMsg(retError).c_str());
+    return env->NewStringUTF(to_string(retError).c_str());
 }
 /**
  * setHdData sets RINEX header records extracting data from the parameters passed and from
@@ -289,48 +239,4 @@ void setHdData(RinexData &rinex, GNSSdataFromGRD &gnssRaw, Logger* plog, vector<
         plog->warning("All, or some header data not acquired");
     }
     gnssRaw.processFilterData(rinex);
-}
-
-/**
- * printNavFile prints the navigation RINEX file using data passed in the current RinexData object.
- * File is named and printed taking into account values stated in the RINEX VERSION / TYPE record.
- * @param rinex the object containing data and parameters to be used for printing
- * @param inNavFileNamePrefix the prefix to use to generate the navigation file name
- * @param outfilesFullPath the directory name (full path) where file will be generated
- * @param plog the logger to record log messages
- * @return true if file was generated, false otherwise
- */
-bool printNavFile(RinexData rinex, string inNavFileNamePrefix, string outfilesFullPath, Logger* plog) {
-    const string LOG_MSG_NAVPRINTED("Generated RINEX nav file=");
-    const string LOG_MSG_NAVERROR("Error when generating RINEX nav file=");
-    FILE* outFile;
-    string outFileName = rinex.getNavFileName(inNavFileNamePrefix);
-    if ((outFile = fopen((outfilesFullPath + outFileName).c_str(), "w")) != NULL) {
-        try {
-            rinex.printNavHeader(outFile);
-            rinex.printNavEpochs(outFile);
-        } catch (string error) {
-            plog->warning(LOG_MSG_NAVERROR + outFileName + " "+ error);
-            fclose(outFile);
-            return false;
-        }
-        plog->info(LOG_MSG_NAVPRINTED + outFileName);
-        fclose(outFile);
-        return true;
-    }
-    plog->warning(LOG_MSG_OUTFILENOK + outFileName);
-    return false;
-}
-
-/**
- * getErrMsg gets a descriptive text for the srror code passed
- * @param errCode error code
- * @return a string with the error message
- */
-string getErrMsg(unsigned int errCode) {
-    string retMsg = RET_MSG_OK;
-    if (errCode != 0) {
-        retMsg = to_string(errCode) + RET_MSG_ERR;
-    }
-    return retMsg;
 }

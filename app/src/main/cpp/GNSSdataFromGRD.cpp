@@ -334,7 +334,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                 break;
             case MT_LLA:
                 if (sscanf(msgContent.c_str(), "%lf;%lf;%lf", &da, &db, &dc) == 3) {
-                    llaTOxyz(da * dgrToRads, db * dgrToRads, dc * dgrToRads, x, y, z);
+                    llaTOxyz(da * dgrToRads, db * dgrToRads, dc, x, y, z);
                     rinex.setHdLnData(rinex.APPXYZ, x, y, z);
                 } else plog->severe(LOG_MSG_ERRO + getMsgDescription(msgType) + " params" + LOG_MSG_COUNT);
                 break;
@@ -1015,11 +1015,13 @@ void GNSSdataFromGRD::skipToEOM() {
  */
 void GNSSdataFromGRD::llaTOxyz( const double lat, const double lon, const double alt,
                                 double &x, double &y, double &z) {
+    double sinlat = sin(lat);
+    double coslat = cos(lat);
     //rn is the radius of curvature in the prime vertical
-    double rn = ECEF_A / sqrt(1.0 - ECEF_E2 * sin(lat) * sin(lat));
-    x = (rn + alt) * cos(lat) * cos(lon);    //ECEF x
-    y = (rn + alt) * cos(lat) * sin(lon);    //ECEF y
-    z = (rn * (1.0 - ECEF_E2) + alt) * sin(lat);  //ECEF z
+    double rn = ECEF_A / sqrt(1.0 - ECEF_E2 * pow(sinlat, 2));
+    x = (rn + alt) * coslat * cos(lon);    //ECEF x
+    y = (rn + alt) * coslat * sin(lon);    //ECEF y
+    z = (rn * (1.0 - ECEF_E2) + alt) * sinlat;  //ECEF z
 }
 
 /**getAndSetEpochTime is called just after reading message identifier MT_EPOCH to read data
