@@ -37,6 +37,7 @@ GNSSdataFromGRD::~GNSSdataFromGRD(void) {
  * @return true if input file succesfully open, false otherwhise
  */
 bool GNSSdataFromGRD::openInputGRD(string inputFilePath, string inputFileName) {
+    msgCount = 0;
     //open input raw data file
     bool retVal = true;
     string inFileName = inputFilePath + inputFileName;
@@ -50,6 +51,7 @@ bool GNSSdataFromGRD::openInputGRD(string inputFilePath, string inputFileName) {
 /**rewindInputGRD rewinds the GRD input file already open
  */
 void GNSSdataFromGRD::rewindInputGRD() {
+    msgCount = 0;
     rewind(grdFile);
 }
 
@@ -59,37 +61,45 @@ void GNSSdataFromGRD::closeInputGRD() {
     fclose(grdFile);
 }
 
-/**collectHeaderData extracts data from the ORD or NRD file for RINEX file header for further printing.
+/**collectHeaderData extracts data from the current ORD or NRD file to the RINEX file header.
  * Also other parameters useful for processing observation or navigation data can be collected here.
  * <p>To collect this data the whole file is parsed from begin to end. Message types not containing
  * data above mentioned are skipped.
+ * <p>Most data are collected only from the first file. Data from MT_SATOBS related to system and signals,
+ * and from MT_SATNAV_GLONASS_L1_CA related to slot number and carrier frequency are collected from all files.
  *
  * @param rinex the RinexData object where header data will be saved
- * @return true if all above described header data are properly extracted, false otherwise
+ * @param inFileNum the number of the current input raw data file from a total of inFileTotal. First value = 0
+ * @param inFileLast the last number of input file to be processed
+ * @return true if above described header data are properly extracted, false otherwise
  */
-bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex) {
-    int msgType;
+bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int inFileLast = 0) {
     char msgBuffer[100];
-    double dvoid;
+    double dvoid, dvoid2;
+    long long llvoid;
     int ivoid;
     string svoid;
-    string msgError;
     string pgm, runby, date;
     string observer, agency;
     string rcvNum, rcvType, rcvVer;
-    //message parameters given by Android
-    char constId;       //the constellation identifier this satellite belongs
-    int satNum, satIdx;		//the satellite number this navigation message belongs and its index
+    vector <string> aVectorStr;
+    //message parameters in ORD or NRD files
+    int msgType;
+    char constId;
+    int satNum, trackState, phaseState;
+    double carrierFrequencyMHz;
+    char sgnl[4] = {0};
+    int satIdx;     //GLONASS satellite slot index
     int strNum;     //GLONASS navigation message string number
     int frame;      //GLONASS navigation message frame number
     //for data extracted from the navigation message
+    bool hasGLOsats;
     unsigned int gloStrWord[GLO_STRWORDS]; //a place to store the bits stream of a GLONASS message
     int nA;     //the slot number got from almanac data
     int hnA;
-    char sgnl[4] = {0};
     bool tofoUnset = true;   //time of first observation not set
+    string msgEpoch = "Fist epoch";
     rewind(grdFile);
-    msgCount = 0;
     while ((feof(grdFile) == 0) && (fscanf(grdFile, "%d;", &msgType) == 1)) { 	//there are messages in the raw data file
         msgCount++;
         switch(msgType) {
@@ -99,6 +109,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex) {
             case MT_RUN_BY:
             case MT_DATE:
             case MT_INTERVALMS:
+            case MT_SIGU:
             case MT_MARKER_NAME:
             case MT_MARKER_TYPE:
             case MT_OBSERVER:
@@ -110,21 +121,30 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex) {
             case MT_FIT:
                 if (fgets(msgBuffer, sizeof msgBuffer, grdFile) == msgBuffer) {
                     trimBuffer(msgBuffer, "\r \t\f\v\n");
-                    processHdData(rinex, msgType, string(msgBuffer));
+                    if (inFileNum == 0) processHdData(rinex, msgType, string(msgBuffer));
                 } else plog->warning(LOG_MSG_ERRO + getMsgDescription(msgType) + " params" + LOG_MSG_COUNT);
                 continue;   //fgets already reads the EOL (skipToEOM not neccesary)!
             case MT_SATOBS:
-                if (fscanf(grdFile, "%c%d;%c%c", &constId, &satNum, sgnl, sgnl+1) == 4) {
-                    if (addSignal(constId, string(sgnl)))
-                        plog->fine(getMsgDescription(msgType) + ": added " + string(1, constId) +
-                                            MSG_SPACE + string(sgnl) + LOG_MSG_COUNT);
+                if (fscanf(grdFile, "%c%d;%c%c;%d;%*lld;%*lf;%d;%*lf;%*lf;%lf", &constId, &satNum, sgnl, sgnl+1, &trackState, &phaseState, &carrierFrequencyMHz) == 7) {
+                    if (constId == 'R') satNum = gloNumFromFCN(satNum, *sgnl, carrierFrequencyMHz, true);
+                    //ignore unknown measurements or not having at least a valid pseudorrange or carrier phase
+                    if (isKnownMeasur(constId, satNum, *sgnl, *(sgnl+1))) {
+                        if (!isPsAmbiguous(constId, sgnl, trackState, dvoid, dvoid2, llvoid) || !isCarrierPhInvalid(constId, sgnl, phaseState)) {
+                            if (addSignal(constId, string(sgnl)))
+                                plog->fine(getMsgDescription(msgType) + ": added " + string(1, constId) + MSG_SPACE + string(sgnl) + LOG_MSG_COUNT);
+                        }
+                    }
                 } else plog->warning(LOG_MSG_ERRO + getMsgDescription(msgType) + " params" + LOG_MSG_COUNT);
                 break;
             case MT_EPOCH:
-                if (tofoUnset) {
-                    getAndSetEpochTime(rinex, dvoid, ivoid, "Fist epoch");
+                collectAndSetEpochTime(rinex, dvoid, ivoid, msgEpoch);
+                if (tofoUnset && inFileNum == 0) {
                     rinex.setHdLnData(rinex.TOFO);
                     tofoUnset = false;
+                    rinex.setHdLnData(rinex.TOLO);
+                    msgEpoch = "Epoch ";
+                } else {
+                    rinex.setHdLnData(rinex.TOLO);
                 }
                 break;
             case MT_SATNAV_GLONASS_L1_CA:
@@ -154,13 +174,15 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex) {
                     case 13:
                     case 15:
                         //check in the slot - carrier frequency table the expected string number for this satellite index
-                        //if current string is the expected one to provide the carrier frequency data, store it
+                        //if current string is the expected one, it provides the carrier frequency data
                         if (nAhnA[satIdx].strFhnA == strNum) {
                             int inx = nAhnA[satIdx].nA - 1;
-                            if ((inx >= 0) && (inx <= GLO_MAXSATELLITES)) {
-                                hnA = getBits(gloStrWord, 9, 5);	//HnA in almanac: bits 14-10
+                            if ((inx >= 0) && (inx < GLO_MAXSATELLITES)) {
+                                hnA = getBits(gloStrWord, 9, 5);	//HnA (carrier frequency number) in almanac: bits 14-10
                                 if (hnA >= 25) hnA -= 32;	//set negative values as per table 4.11 of the GLONASS ICD
-                                carrierFreq[inx] = hnA;
+                                nAhnA[inx].hnA = hnA;
+                                nAhnA[inx].nA = nAhnA[satIdx].nA;
+                                nAhnA[inx].strFhnA = 0;
                             } else plog->warning("Bad GLO slot " + to_string(inx) + " slot-carrier frequency table " + to_string(satIdx) + LOG_MSG_COUNT);
                         }
                         break;
@@ -178,7 +200,29 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex) {
         }
         skipToEOM();
     }
-    setHdSys(rinex);
+    if (inFileNum == inFileLast) {
+        setHdSys(rinex);
+        processFilterData(rinex);
+        hasGLOsats = false;
+        for (int i=0; rinex.getHdLnData(RinexData::SYS, constId, aVectorStr, i); i++) {
+            //set empty PHSH records because Android does not provide specific data on this subject
+            aVectorStr.clear();
+            rinex.setHdLnData(RinexData::PHSH, constId, string(), 0.0, aVectorStr);
+            if (constId == 'R') hasGLOsats = true;
+        }
+        if (hasGLOsats) {
+            //set empty GLPHS records because Android does not provides data on this subject
+            rinex.setHdLnData(RinexData::GLPHS, "C1C", 0.0);
+            rinex.setHdLnData(RinexData::GLPHS, "C1P", 0.0);
+            rinex.setHdLnData(RinexData::GLPHS, "C2C", 0.0);
+            rinex.setHdLnData(RinexData::GLPHS, "C2P", 0.0);
+            //set GLSLT data for the existing slots
+            for (int i=0; i<GLO_MAXOSN; i++) {
+                if (nAhnA[i].nA != 0)
+                    rinex.setHdLnData(RinexData::GLSLT, nAhnA[i].nA, nAhnA[i].hnA);
+            }
+        }
+    }
     return true;
 }
 
@@ -198,63 +242,104 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex) {
  *<p>Other messages in the input binary file different from  MT_EPOCH ot MT_SATOBS are ignored.
  *
  * @param rinex the RinexData object where data got from receiver will be placed
- * @param msgCount the input file message counter
  * @return true when observation data from an epoch messages have been acquired, false otherwise (End Of File reached)
  */
 bool GNSSdataFromGRD::collectEpochObsData(RinexData &rinex) {
     //variables to get data from ORD observation records
     int msgType;
-    char constId, ambiguous;
-    int satellite, synchState;
-    double carrierPhase, cn0db, timeOffsetNanos, psrangeRate, carrierFrequencyMHz;
-    char sgnl[4] = {0};
+    char constellId;
+    int satNum;
+    char signalId[4] = {0};
+    int synchState;
+    long long tTx = 0;  //the satellite transmitted clock in nanosec. (from receivedSatTimeNanos given by Android I/F)
+    long long tTxUncert;
+    double timeOffsetNanos;
+    int carrierPhaseState;
+    double carrierPhase, cn0db, carrierFrequencyMHz;
+    double psRangeRate, psRangeRateUncert;
     //variables to obtain observables
     //This app version assumes for tRxGNSS the GPS time reference (tRxGNSS is here tRxGPS)
-    long long tTx = 0;  //the satellite transmitted clock in nanosec. (from receivedSatTimeNanos given by Android I/F)
-    long long tRx = 0;  //the receiver clock in nanosec. from the beginning of the current GPS week (is referenced to the GPS constellation time frame)
-    double tow = 0;     //time of week in seconds from the beginning of the current GPS week
+    double tRx = 0.0;    //the receiver clock in nanosececonds from the beginning of the current GPS week
+    double tRxGNSS = 0;  //the receiver clock for the GNSS system of the satellite being processed
+    double tow = 0;         //time of week in seconds from the beginning of the current GPS week
     double pseudorange = 0.0;
     double dopplerShift = 0.0;
     int lli = 0;    //loss o lock indicator as per RINEX V3.01
     int sn_rnx = 0;   //signal strength as per RINEX V3.01
-    int numMeasur = 0; //number of satellite measurements in this epoch
+    int numMeasur = 0; //number of satellite measurements in current epoch
+    bool psAmbiguous = false;
+    bool phInvalid = false;
     while (fscanf(grdFile, "%d;", &msgType) == 1) {
         msgCount++;
         switch(msgType) {
             case MT_EPOCH:
                 if (numMeasur > 0) plog->warning(LOG_MSG_ERRO + "Few MT_SATOBS in epoch" + LOG_MSG_COUNT);
-                tRx = getAndSetEpochTime(rinex, tow, numMeasur, "Epoch");
+                tRx = collectAndSetEpochTime(rinex, tow, numMeasur, "Epoch");
                 break;
             case MT_SATOBS:
-                if (numMeasur == 0) plog->warning(LOG_MSG_ERRO + "MT_SATOBS before MT_EPOCH" + LOG_MSG_COUNT);
-                else {
-                    if (fscanf(grdFile, "%c%d;%c%c;%c;%d;%lld;%lf;%lf;%lf;%lf;%lf",
-                               &constId, &satellite, sgnl+1, sgnl+2, &ambiguous,
-                               &synchState, &tTx, &carrierPhase, &cn0db,
-                               &timeOffsetNanos, &carrierFrequencyMHz, &psrangeRate) == 12) {
-                        //from data available compute signal to noise RINEX index, paseudorange and doppler shift
+                if (numMeasur <= 0) {
+                    plog->warning(LOG_MSG_ERRO + "MT_SATOBS before MT_EPOCH" + LOG_MSG_COUNT);
+                    break;
+                }
+                numMeasur--;    //an MT_SATOBS has been read, get its parameters
+                if (fscanf(grdFile, "%c%d;%c%c;%d;%lld;%lf;%d;%lf;%lf;%lf;%lf;%lf;%lld",
+                           &constellId, &satNum, signalId+1, signalId+2,
+                           &synchState, &tTx, &timeOffsetNanos,
+                           &carrierPhaseState, &carrierPhase,
+                           &cn0db,  &carrierFrequencyMHz,
+                           &psRangeRate, &psRangeRateUncert, &tTxUncert) != 14) {
+                    plog->warning(LOG_MSG_ERRO + "MT_SATOBS params" + LOG_MSG_COUNT);
+                    break;
+                }
+                //solve the issue of Glonass satellite number
+                if (constellId == 'R') satNum = gloNumFromFCN(satNum, signalId[1], carrierFrequencyMHz, false);
+                if (isKnownMeasur(constellId, satNum, signalId[1], signalId[2])) {
+                    psAmbiguous = isPsAmbiguous(constellId, signalId+1, synchState, tRx, tRxGNSS, tTx);
+                    phInvalid = isCarrierPhInvalid(constellId, signalId, carrierPhaseState);
+                    if (!psAmbiguous || !phInvalid) {
+                        //from data available compute signal to noise RINEX index
                         sn_rnx = (int) (cn0db / 6);
                         if (sn_rnx < 1) sn_rnx = 1;
                         else if (sn_rnx > 9) sn_rnx = 1;
-                        //TBD LLI indicator: bits 0, 1, or 2 set?
-                        sgnl[0] = 'C';
-                        pseudorange = ((double)(tRx - tTx) - timeOffsetNanos) * SPEED_OF_LIGTH_MxNS;
-                        rinex.saveObsData(constId, satellite, string(sgnl), pseudorange, lli, sn_rnx, tow);
-                        sgnl[0] = 'L';
-                        rinex.saveObsData(constId, satellite, string(sgnl), carrierPhase, lli, sn_rnx, tow);
-                        sgnl[0] = 'D';
-                        dopplerShift = psrangeRate * carrierFrequencyMHz * DOPPLER_FACTOR;
-                        rinex.saveObsData(constId, satellite, string(sgnl), dopplerShift, lli, sn_rnx, tow);
-                        sgnl[0] = 'S';
-                        rinex.saveObsData(constId, satellite, string(sgnl), cn0db, lli, sn_rnx, tow);
-                        plog->fine(getMsgDescription(msgType) + MSG_SPACE + string(1, constId) + to_string(satellite) + MSG_SPACE +
-                                     to_string(pseudorange) + MSG_SPACE + to_string(carrierPhase) + MSG_SPACE +
-                                     to_string(dopplerShift) + MSG_SPACE + to_string(cn0db) + LOG_MSG_COUNT);
-                        if (--numMeasur == 0) {
-                            skipToEOM();
-                            return true;
+                        //set and comupute pseudorrange values. Computation depends on tracking state and constellation time frame
+                        signalId[0] = 'C';
+                        pseudorange = (tRxGNSS - (double) tTx - timeOffsetNanos) * SPEED_OF_LIGTH_MxNS;
+                        if (psAmbiguous || pseudorange < 0) pseudorange = 0.0;
+                        rinex.saveObsData(constellId, satNum, string(signalId), pseudorange, 0, sn_rnx, tow);
+                        //set carrier phase values and LLI
+                        signalId[0] = 'L';
+                        lli = 0;    //valid or unkown by default
+                        if (phInvalid) {
+                            carrierPhase = 0.0;   //invalid carrier phase
+                        } else {
+                            if ((carrierPhaseState & ADR_ST_CYCLE_SLIP) != 0) lli |= 0x01;  //cycle slip detected
+                            if ((carrierPhaseState & ADR_ST_RESET) != 0) lli |= 0x01;   //reset detected
+                            if ((carrierPhaseState & ADR_ST_HALF_CYCLE_RESOLVED) != 0) lli |= 0x01;
                         }
-                    } else plog->warning(LOG_MSG_ERRO + "MT_SATOBS params" + LOG_MSG_COUNT);
+                        //phase, given in meters, shall be converted to full cycles
+                        //TODO to take into account apply bias y half cycle
+                        carrierPhase *= carrierFrequencyMHz * WLFACTOR;
+                        rinex.saveObsData(constellId, satNum, string(signalId), carrierPhase, lli, sn_rnx, tow);
+                        //set doppler values
+                        signalId[0] = 'D';
+                        dopplerShift = - psRangeRate * carrierFrequencyMHz * DOPPLER_FACTOR;
+                        rinex.saveObsData(constellId, satNum, string(signalId), dopplerShift, 0, sn_rnx, tow);
+                        //set signal to noise values
+                        signalId[0] = 'S';
+                        rinex.saveObsData(constellId, satNum, string(signalId), cn0db, 0, sn_rnx, tow);
+                        plog->fine(getMsgDescription(msgType) + MSG_SPACE + string(1, constellId) + to_string(satNum) + MSG_SPACE +
+                                   string(signalId+1) + MSG_SPACE +
+                                   to_string(pseudorange) + MSG_SPACE + to_string(carrierPhase) + MSG_SPACE +
+                                   to_string(dopplerShift) + MSG_SPACE + to_string(cn0db) + LOG_MSG_COUNT);
+                    } else {
+                        plog->fine(getMsgDescription(msgType) + MSG_SPACE + string(1, constellId) + to_string(satNum) + MSG_SPACE +
+                                   string(signalId+1) + LOG_MSG_INVM + LOG_MSG_COUNT);
+                    }
+                } else plog->warning(getMsgDescription(msgType) + MSG_SPACE + string(1, constellId) + to_string(satNum) + MSG_SPACE +
+                                     string(signalId+1) + MSG_SPACE + LOG_MSG_UNK);
+                if (numMeasur <= 0) {
+                    skipToEOM();
+                    return true;
                 }
                 break;
             case MT_SATNAV_GPS_l1_CA:
@@ -321,7 +406,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
     try {
         switch(msgType) {
             case MT_GRDVER:
-                plog->warning("MT_GRDVER currently not processed");
+                plog->finest("MT_GRDVER currently not taken into account");
                 break;
             case MT_PGM:
                 rinex.setHdLnData(rinex.RUNBY, msgContent, svoid, svoid);
@@ -344,12 +429,15 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
             case MT_INTERVALMS:
                 rinex.setHdLnData(rinex.INT, stod(msgContent) / 1000., dvoid, dvoid);
                 break;
+            case MT_SIGU:
+                rinex.setHdLnData(rinex.SIGU, msgContent, svoid, svoid);
+                break;
             case MT_RINEXVER:
                 rinex.setHdLnData(rinex.VERSION, stod(msgContent), dvoid, dvoid);
                 break;
-            case MT_SITE:
-                if (!msgContent.empty()) siteName = msgContent;
-                break;
+//            case MT_SITE:
+//                if (!msgContent.empty()) siteName = msgContent;
+//                break;
             case MT_RUN_BY:
                 rinex.setHdLnData(rinex.RUNBY, svoid, msgContent, svoid);
                 break;
@@ -435,7 +523,7 @@ void GNSSdataFromGRD::processFilterData(RinexData &rinex) {
  */
 void GNSSdataFromGRD::setInitValues() {
     msgCount = 0;
-    siteName = defaultSiteName;
+//    siteName = defaultSiteName;
     clkoffset = 0;
     applyBias = false;
     fitInterval = false;
@@ -521,7 +609,7 @@ void GNSSdataFromGRD::setInitValues() {
     memset(gpsSatFrame, 0, sizeof gpsSatFrame);
     memset(gloSatFrame, 0, sizeof gloSatFrame);
     memset(nAhnA, 0, sizeof nAhnA);
-    memset(carrierFreq, 0, sizeof carrierFreq);
+//    memset(frqNum, 0, sizeof frqNum);
 }
 
 /**collectGPSEpochNav gets GPS navigation data from a raw message and store them into satellite ephemeris
@@ -541,6 +629,7 @@ bool GNSSdataFromGRD::collectGPSEpochNav(RinexData &rinex) {
     int sfrmNum;    //navigation message subframe number
     int pageNum;    //navigation message page number
     int msgSize;    //the message size in bytes
+    int aByte;      //aux var
     unsigned int msg[GPS_l1_CA_MSGSIZE]; //to store GPS message bytes from receiver
     unsigned int wd[GPS_SUBFRWORDS];	//a place to store the ten words of the GPS message after being refined
     int bom[8][4];		//a RINEX broadcats orbit like arrangement for satellite ephemeris mantissa
@@ -575,7 +664,7 @@ bool GNSSdataFromGRD::collectGPSEpochNav(RinexData &rinex) {
             wd[i] = msg[i*4]<<24 | msg[i*4+1]<<16 | msg[i*4+2]<<8 | msg[i*4+4];
         }
         //remove parity from each GPS word getting the useful 24 bits
-        //TBC Note that when D30 is set, data bits are complemented (a non documented SiRF OSP feature)
+        //TODO verify: Note that when D30 is set, data bits are complemented (a non documented SiRF OSP feature)
         for (int i=0; i<GPS_SUBFRWORDS; i++)
             if ((wd[i] & 0x40000000) == 0) wd[i] = (wd[i]>>6) & 0xFFFFFF;
             else wd[i] = ~(wd[i]>>6) & 0xFFFFFF;
@@ -763,7 +852,7 @@ bool GNSSdataFromGRD::extractGPSEphemeris(int satIdx, int (&bom)[8][4]) {
                       "," + to_string((unsigned long long) iode2) + ">");
         return false;
     }
-/* TBC: to analyze the following code for correctness
+/*  TODO: to analyze include the following code for correctness
 	//check for SVhealth
 	unsigned int svHealth = (navW[4]>>10) & 0x3F;
 	if ((svHealth & 0x20) != 0) {
@@ -854,7 +943,8 @@ bool GNSSdataFromGRD::extractGLOEphemeris(int satIdx, int (&bom)[8][4], int& slt
     bom[2][0] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 8, 27), 27);	//Satellite position, Y: bits 35-9 string 2
     bom[2][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 40, 24), 24);	//Satellite velocity, Y: bits 64-41 string 2
     bom[2][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 35, 5), 5);	//Satellite acceleration, Y: bits 40-36 string 2
-    bom[2][3] = carrierFreq[slt-1];										//Frequency number (-7 ... +13)
+    bom[2][3] = nAhnA[slt-1].hnA;										//Frequency number (-7 ... +13)
+//    bom[2][3] = frqNum[slt-1];										//Frequency number (-7 ... +13)
     bom[3][0] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 8, 27), 27);	//Satellite position, Z: bits 35-9 string 3
     bom[3][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 40, 24), 24);	//Satellite velocity, Z: bits 64-41 string 3
     bom[3][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 35, 5), 5);	//Satellite acceleration, Z: bits 40-36 string 3
@@ -918,14 +1008,14 @@ double GNSSdataFromGRD::scaleGLOEphemeris(int (&bom)[8][4], double (&bo)[8][4]) 
 
 /**gloSatIdx obtains the satellite index from the given OSN or FCN.
  * If the given satellite number is the OSN range index will be in the range 0 to GLO_MAXOSN-1
- * If the satellite number is FCN, index will be in the range GLO_MAXOSN to GLO_MAXFCN - GLO_OSNOFFSET - 1
+ * If the satellite number is FCN, index will be in the range GLO_MAXOSN to GLO_MAXFCN - GLO_FCN2OSN - 1
  *
  * @param stn the satellite number (may be OSN or FCN)
  * @return the satellite index or GLO_MAXSATELLITES if the given stn is not OSN or FCN
  */
 int GNSSdataFromGRD::gloSatIdx(int stn) {
     if (stn >= GLO_MINOSN && stn <= GLO_MAXOSN) return (stn - 1);  //normal OSN case, index in range 0 - 23
-    if (stn >= GLO_MINFCN && stn <= GLO_MAXFCN) return (stn - GLO_OSNOFFSET - 1); //case FCN, translated to index in range 24 - 37
+    if (stn >= GLO_MINFCN && stn <= GLO_MAXFCN) return (stn - GLO_FCN2OSN - 1); //case FCN, translated to index in range 24 - 37
     return GLO_MAXSATELLITES;
 }
 
@@ -967,8 +1057,8 @@ void GNSSdataFromGRD::setHdSys(RinexData &rinex) {
     vector<string> sgnl;
     try {
         for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); ++it) {
+            sgnl.clear();
             for (vector<string>::iterator itt = it->obsType.begin(); itt != it->obsType.end(); ++itt) {
-                sgnl.clear();
                 sgnl.push_back("C" + (*itt));    //pseudorange signal name
                 sgnl.push_back("L" + (*itt));    //carrier phase signal name
                 sgnl.push_back("D" + (*itt));    //doppler signal name
@@ -1024,7 +1114,7 @@ void GNSSdataFromGRD::llaTOxyz( const double lat, const double lon, const double
     z = (rn * (1.0 - ECEF_E2) + alt) * sinlat;  //ECEF z
 }
 
-/**getAndSetEpochTime is called just after reading message identifier MT_EPOCH to read data
+/**collectAndSetEpochTime is called just after reading message identifier MT_EPOCH to read data
  * in the rest of the message. Data contained in the message is used to compute the epoch time,
  * which is given as the week number and the time of week (seconds from the
  * beginning of this week.
@@ -1042,14 +1132,12 @@ void GNSSdataFromGRD::llaTOxyz( const double lat, const double lon, const double
  * @param msg a message to log
  * @return time of week in nanoseconds from the begining of the current week
  */
-long long GNSSdataFromGRD::getAndSetEpochTime(RinexData& rinex, double& tow, int& numObs, string msg) {
-    long long tRxGNSS;  //nanos from the beginning of the epoch, corrected with the clock bias or not
-    long long tRx;  //nansec. from the beginning of the current week
-    long long timeNanos = 0; //is the epochTimeNanos, nanoseconds form GPS ephemeris: 6/1/1980 00:00
-    long long fullBiasNanos = 0;
-    double biasNanos = 0.0;
-    double driftNanos = 0.0;
-    double tRxBias;
+double GNSSdataFromGRD::collectAndSetEpochTime(RinexData& rinex, double& tow, int& numObs, string msg) {
+    long long timeNanos = 0;        //the receiver hardware clock time
+    long long fullBiasNanos = 0;    //difference between hardware clock and GPS time (tGPS = timeNanos - fullBiasNanos - biasNanos
+    double biasNanos = 0.0;         //haardware clock sub-nano bias
+    double driftNanos = 0.0;    //drift of biasNanos in nanos per second
+    double tRx;  //receiver clock nanos from the beginning of the current week (using GPS time system)
     int clkDiscont = 0;
     int leapSeconds = 0;
     int eflag = 0;  //0=OK; 1=power failure happened
@@ -1059,18 +1147,26 @@ long long GNSSdataFromGRD::getAndSetEpochTime(RinexData& rinex, double& tow, int
                &clkDiscont, &leapSeconds, &numObs) != 7) {
         plog->warning(LOG_MSG_ERRO + "MT_EPOCH params" + LOG_MSG_COUNT);
     }
-    //compute time references and set epoch time
-    tRxGNSS = timeNanos;
-    if (applyBias) tRxGNSS -= fullBiasNanos + (long long) trunc(biasNanos);
-    week = (int) (tRxGNSS / NUMBER_NANOSECONDS_WEEK);
-    tRx = tRxGNSS % NUMBER_NANOSECONDS_WEEK;
-    tow = ((double) tRx) * 1E-9;
-    tRxBias = ((double)(fullBiasNanos % NUMBER_NANOSECONDS_WEEK) + biasNanos) * 1E-9;
+    //Compute time references and set epoch time
+    //Note that a double has a 15 digits mantisa. It is not sufficient for time nanos computation when counting
+    //from begining of GPS time, but it is sufficient when counting nanos from the begining of current week (< 604,800,000,000,000 )
+    timeNanos -= fullBiasNanos; //true time of the receiver
+    week = (int) (timeNanos / NUMBER_NANOSECONDS_WEEK);
+    timeNanos %= NUMBER_NANOSECONDS_WEEK;
+    tRx = double(timeNanos);
+    if (applyBias) {
+        tRx +=  biasNanos;
+        if (tRx > (double) NUMBER_NANOSECONDS_WEEK) {
+            week++;
+            tRx = fmod(tRx, NUMBER_NANOSECONDS_WEEK);
+        }
+    }
+    tow = tRx * 1E-9;
     if (clockDiscontinuityCount != clkDiscont) {
         eflag = 1;
         clockDiscontinuityCount = clkDiscont;
     }
-    rinex.setEpochTime(week, tow, tRxBias, eflag);
+    rinex.setEpochTime(week, tow, biasNanos * 1E-9, eflag);
     plog->fine(msg + " w=" + to_string(week) + " tow=" + to_string(tow)  + " applyBias:" + (applyBias?string("TRUE"):string("FALSE"))+ LOG_MSG_COUNT);
     return tRx;
 }
@@ -1105,4 +1201,166 @@ vector<string> GNSSdataFromGRD::getElements(string toExtract, string delimiters)
         } else break;
     }
     return elementsFound;
+}
+
+/**isPsAmbiguous determines if the measurement associated to the provided synchState is ambiguous or not.
+ * Also, if it is not ambiguous, recomputes the related values for receiver and received time clock depending on
+ * constellation and synchronisation state. They are recomputed when the tracking state deduced from the
+ * synchronisation state allows determination of unambiguous pseudorange.
+ *
+ * @param constellId the constellation identifier
+ * @param signalId the three char identifier of the signal
+ * @param synchState the synchronisation state given by Android getState for GNSS measurements
+ * @param tRx the receiver clock in nanosececonds from the beginning of the current GPS week
+ * @param tRxGNSS the receiver clock in the time frame of the given constellation and for the sync item
+ * @param tTx initially the satellite transmitted clock, finally recomputed for the sync item
+ * @return true if the synchronisation state will allow computation of unambiguous pseudoranges, false otherwise
+ */
+bool GNSSdataFromGRD::isPsAmbiguous(char constellId, char* signalId, int synchState, double tRx, double &tRxGNSS, long long &tTx) {
+    bool psAmbiguous = false;
+    tRxGNSS = tRx;      //by default it is assumed the GPS TOW
+    switch (constellId) {
+        case 'G':
+        case 'J':
+        case 'S':
+            if (((synchState & ST_TOW_DECODED) != 0)
+                && ((synchState & ST_CBSS_SYNC) != 0)) break;   //the time origin is the default start of week
+            if (((synchState & ST_SUBFRAME_SYNC) != 0)) {      //the time origin is the start of the 6 sec. subframe
+                tRxGNSS = fmod(tRx, NUMBER_NANOSECONDS_6S);
+                tTx %= NUMBER_NANOSECONDS_6S;
+                break;
+            }
+            //other trackStates will provide ambiguous pseudorange (not valid)
+            psAmbiguous = true;
+            break;
+        case 'R':
+            if (((synchState & ST_GLO_TOD_DECODED) != 0)
+                && ((synchState & ST_CBGSS_SYNC) != 0)) {   //the time origin is the start of GLONASS day
+                tRxGNSS = fmod(tRx + NUMBER_NANOSECONDS_3H - NUMBER_NANOSECONDS_18S, NUMBER_NANOSECONDS_DAY);
+                tTx %= NUMBER_NANOSECONDS_DAY;
+                break;
+            }
+            if ((synchState & ST_GLO_STRING_SYNC) != 0) {  //the time origin is the start of 2 sec. string
+                tRxGNSS = fmod(tRx, NUMBER_NANOSECONDS_2S);
+                tTx %= NUMBER_NANOSECONDS_2S;
+                break;
+            }
+            //other trackStates will provide ambiguous pseudorange (not valid)
+            psAmbiguous = true;
+            break;
+        case 'E':
+            if (((synchState & ST_TOW_DECODED) != 0)
+                && ((synchState & ST_CBSS_SYNC) != 0)) break;   //the time origin is the default start of week
+            if (((synchState & ST_TOW_DECODED) != 0)
+                && ((*(signalId) == '1') && (synchState & ST_GAL_E1BC_SYNC) != 0)) break;   //idem
+            if ((synchState & ST_GAL_E1B_PAGE_SYNC) != 0) {      //the time origin is the start of the 2 sec. page
+                tRxGNSS = fmod(tRx, NUMBER_NANOSECONDS_2S);
+                tTx %= NUMBER_NANOSECONDS_2S;
+                break;
+            }
+            if ((synchState & ST_GAL_E1C_2ND_CODE_LOCK) != 0) { //the time origin is the start of the 100msec 2nd code
+                tRxGNSS = fmod(tRx, NUMBER_NANOSECONDS_100MS);
+                tTx %= NUMBER_NANOSECONDS_100MS;
+                break;
+            }
+            //other trackStates will provide ambiguous pseudorange (not valid)
+            psAmbiguous = true;
+            break;
+        case 'C':
+            if (((synchState & ST_TOW_DECODED) != 0)
+                && ((synchState & ST_CBSS_SYNC) != 0)) {   //the time origin is the start of the BDS week
+                tRxGNSS = fmod(tRx - NUMBER_NANOSECONDS_14S, NUMBER_NANOSECONDS_WEEK);  //BDS time = GPS time - 14s
+                break;
+            }
+            if (((synchState & ST_SUBFRAME_SYNC) != 0)) {      //the time origin is the start of the 6 sec.subframe
+                tRxGNSS = fmod(tRx - NUMBER_NANOSECONDS_14S, NUMBER_NANOSECONDS_6S);
+                tTx %= NUMBER_NANOSECONDS_6S;
+                break;
+            }
+            //other trackStates will provide ambiguous pseudorange (not valid)
+            psAmbiguous = true;
+            break;
+        default:
+            psAmbiguous = true;
+            break;
+    }
+    return psAmbiguous;
+}
+
+/**
+ * isCarrierPhInvalid determines if the carrier phase state will provide phase measurements valid for this constellation and signal.
+ *
+ * @param constellId the constellation identifier
+ * @param signalId the three char identifier of the signal
+ * @param carrierPhaseState the accumulated delta range state given by Android for GNSS measurements
+ * @return true if the ADR state will allow computation of phase measurements, false otherwise
+ *
+ */
+bool GNSSdataFromGRD::isCarrierPhInvalid(char constellId, char* signalId, int carrierPhaseState) {
+    return carrierPhaseState == ST_UNKNOWN;
+}
+
+/**
+ * isKnownMeasur checks validity of identifiers for constellation, satellite, band and signal attribute.
+ * Note that in Glonass satellite number can be OSN or FCN. For a normalized FCN to be valid it shall exist the corresponding
+ * valid OSN stored in the nAhnA table (already extracted from the Glonass almanac)
+ *
+ * @param constellId the constellation identifier
+ * @param satNum the satellite number
+ * @param frqId a frequency identifier
+ * @param attribute the signal attribute
+ * @return true if the satellite number is valid or has been converted to a valid one, false otherwise
+ */
+bool GNSSdataFromGRD::isKnownMeasur(char constellId, int satNum, char frqId, char attribute) {
+    //check band and signal attribute
+    if ((frqId == '?') || (attribute == '?')) return false;
+    //check constellation and satellite number
+    switch (constellId) {
+        case 'R':
+            if (satNum < GLO_MINOSN || satNum >= GLO_MAXSATELLITES) return false;
+            if (nAhnA[satNum-1].nA < GLO_MINOSN || nAhnA[satNum-1].nA > GLO_MAXOSN) return false;
+            break;
+        case 'G':
+        case 'C':
+        case 'J':
+        case 'S':
+        case 'E':
+            break;
+        default:
+            return false;
+    }
+   return true;
+}
+
+/**
+ * gloNumFromFCN gets a normalizad Glonass satellite number from the given OSN or FCN and carrier frequency.
+ * If the satellite number is FCN (93 to 106), put it in the range 25 to 38.
+ * If it is requested to update nAhnA (the OSN-FCN table), it computes the frequency number for the carrier frequency
+ * given and store parameters in the nAhnA table.
+ *
+ * @param satNum the satellite number
+ * @param carrFrq the carrier frequency of the L1 band signal
+ * @param updTbl if true, the nAhnA table is update,if false, it is not updated
+ * @return the normalized satellite number in the range 1 to 38, or 0 if given data is not valid
+ */
+int GNSSdataFromGRD::gloNumFromFCN(int satNum, char band, double carrFrq, bool updTbl) {
+    double bandFrq;
+    double slotFrq;
+    if (satNum > GLO_MAXSATELLITES) satNum -= GLO_FCN2OSN;
+    if (satNum >= GLO_MINOSN && satNum <= GLO_MAXSATELLITES) {
+        if (updTbl) {
+            if (band == '1') {
+                bandFrq = GLO_BAND_FRQ1;
+                slotFrq = GLO_SLOT_FRQ1;
+            } else {
+                bandFrq = GLO_BAND_FRQ1;
+                slotFrq = GLO_SLOT_FRQ1;
+            }
+            nAhnA[satNum -1].nA = satNum;
+            nAhnA[satNum -1].hnA = (int) (carrFrq - bandFrq) / slotFrq;
+            nAhnA[satNum -1].strFhnA = 0;
+        }
+        satNum = nAhnA[satNum -1].nA;
+    } else satNum = 0;
+    return satNum;
 }

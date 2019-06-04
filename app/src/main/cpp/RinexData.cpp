@@ -90,31 +90,31 @@ RinexData::~RinexData(void) {
 
 //PUBLIC METHODS
 
-///a macro to assing in setHdLnData the value of the method parameter a to the given member
+///a macro to assign in setHdLnData the value of the method parameter a to the given member
 #define SET_1PARAM(LABEL_rl, FROM_PARAM_a) \
 	FROM_PARAM_a = a; \
 	setLabelFlag(LABEL_rl); \
 	return true;
-///a macro to assing in setHdLnData the value of the method parameters a and b to the given members
+///a macro to assign in setHdLnData the value of the method parameters a and b to the given members
 #define SET_2PARAM(LABEL_rl, FROM_PARAM_a, FROM_PARAM_b) \
 	FROM_PARAM_a = a; \
 	FROM_PARAM_b = b; \
 	setLabelFlag(LABEL_rl); \
 	return true;
-///a macro to assing in setHdLnData the value of the method parameters a, b and c to the given members
+///a macro to assign in setHdLnData the value of the method parameters a, b and c to the given members
 #define SET_3PARAM(LABEL_rl, FROM_PARAM_a, FROM_PARAM_b, FROM_PARAM_c) \
 	FROM_PARAM_a = a; \
 	FROM_PARAM_b = b; \
 	FROM_PARAM_c = c; \
 	setLabelFlag(LABEL_rl); \
 	return true;
-///a macro to assing in setHdLnData the value of the method not-null string parameters a and b to the given members
+///a macro to assign in setHdLnData the value of the method not-null string parameters a and b to the given members
 #define SET_2STRPARAM(LABEL_rl, FROM_PARAM_a, FROM_PARAM_b) \
 	if (a.length() != 0) FROM_PARAM_a = a; \
 	if (b.length() != 0) FROM_PARAM_b = b; \
 	setLabelFlag(LABEL_rl); \
 	return true;
-///a macro to assing in setHdLnData the value of the method not-null string parameters a, b and c to the given members
+///a macro to assign in setHdLnData the value of the method not-null string parameters a, b and c to the given members
 #define SET_3STRPARAM(LABEL_rl, FROM_PARAM_a, FROM_PARAM_b, FROM_PARAM_c) \
 	if (a.length() != 0) FROM_PARAM_a = a; \
 	if (b.length() != 0) FROM_PARAM_b = b; \
@@ -137,13 +137,13 @@ bool RinexData::setHdLnData(RINEXlabel rl) {
 	case TOFO:
 		firstObsWeek = epochWeek;
 		firstObsTOW = epochTOW;
-		//set the time system
-		switch (systemId) {
+		//set the default time system value
+		switch (sysToPrintId) {
 		case 'E': obsTimeSys = "GAL"; break;
 		case 'R': obsTimeSys = "GLO"; break;
-		case 'S':
-		case 'G': obsTimeSys = "GPS"; break;
-		default : obsTimeSys.clear();
+        case 'C': obsTimeSys = "BDT"; break;
+        case 'J': obsTimeSys = "QZS"; break;
+        default: obsTimeSys = "GPS"; break;
 		}
 		setLabelFlag(TOFO);
 		return true;
@@ -225,7 +225,7 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a, int b, const vector<string> &
 	int n;
 	switch(rl) {
 	case SCALE:
-		if ((n = sysInx(a)) < 0) return false;
+		if ((n = systemIndex(a)) < 0) return false;
 		obsScaleFact.push_back(OSCALEfact(n, b, c));
 		setLabelFlag(SCALE);
 		return true;
@@ -262,6 +262,34 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a, const string &b, double c, do
 /**setHdLnData sets data values for RINEX file header records
  *
  * The label identifier value in this overload can be:
+ *  - PHPS: to set in RINEX header the phase shift correction used to generate phases consistent w/r to cycle shifts.
+ *
+ * @param rl the label identifier of the RINEX header record/line data values are for
+ * @param a the system identifier
+ * @param b the observable code
+ * @param c the correction applied in cycles
+ * @param d the list of satellites (Snn)
+ * @return true if header values have been set, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::setHdLnData(RINEXlabel rl, char a, const string &b, double c, const vector<string> &d) {
+    int sysInx;
+    switch(rl) {
+        case PHSH:
+            if ((sysInx = systemIndex(a)) >= 0) {
+                phshCorrection.push_back(PHSHcorr(sysInx, b, c, d));
+                setLabelFlag(PHSH);
+            } else return false;
+            break;
+        default:
+            throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
+    }
+    return true;
+}
+
+/**setHdLnData sets data values for RINEX file header records
+ *
+ * The label identifier value in this overload can be:
  *  - DCBS: to set in RINEX header data for corrections of differential code biases (DCBS). Data to be included in record SYS / DCBS APPLIED.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
@@ -275,7 +303,7 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a, const string &b, const string
 	int n;
 	switch(rl) {
 	case DCBS:
-		if ((n = sysInx(a)) < 0) return false;
+		if ((n = systemIndex(a)) < 0) return false;
 		dcbsApp.push_back(DCBSPCVSapp(n, b, c));
 		setLabelFlag(DCBS);
 		return true;
@@ -370,6 +398,7 @@ bool RinexData::setHdLnData(RINEXlabel rl, double a, double b, double c) {
  * - LEAP to set in RINEX header the number of leap seconds (value in param a) since 6-Jan-1980 as transmitted by the GPS almanac. Data to be included in record LEAP SECONDS.
  * - SATS to set in RINEX header the number of satellites (value in param a) for which observables are stored in the file. Data to be included in record # OF SATELLITES.
  * - WVLEN to set obligatory (in RINEX V2) default WAVELENGTH FACT L1/2 record data for the RINEX file header.
+ * - GLSLT to set Glonas slot data for record "GLONASS SLOT / FRQ #" (in version V302).
  * Params a and b contains the wave length factor for L1 and L2 respectively.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
@@ -394,6 +423,10 @@ bool RinexData::setHdLnData(RINEXlabel rl, int a, int b) {
 		}
 	 	setLabelFlag(WVLEN);
 		return true;
+	case GLSLT:
+        gloSltFrq.push_back(GLSLTfrq(a,b));
+        setLabelFlag(GLSLT);
+        return true;
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
 	}
@@ -505,17 +538,30 @@ bool RinexData::setHdLnData(RINEXlabel rl, const string &a, const vector<double>
 /**setHdLnData sets data values for RINEX file header records
  *
  * The label identifier value in this overload can be:
- * - TIMC: to set in RINEX GPS nav header correction parameters to transform the system time to UTC or other time systems. Data to be included in record TIME SYSTEM CORR
+ * - TIMC: to set in RINEX GPS nav header correction parameters to transform the system time to UTC or
+ *		other time systems. Data to be included in record TIME SYSTEM CORR.
+ *		The meaning of parameters for this case hare:
+ *		a the correction type (GAL=Galileo ai0 � ai2; GPSA=GPS alpha0 - alpha3; GPSB=GPS beta0  - beta3)
+ *		b a0 coefficient of 1-deg polynomial
+ *		c a1 coefficient of 1-deg polynomial
+ *		d reference time for polynomial (Seconds into GPS/GAL week)
+ *		e reference week number (GPS/GAL week, continuous number)
+ *		f sbas (EGNOS, WAAS, or MSAS)
+ *		g UTC Identifier
+ *
+ * - GLPHS to set GLONASS phase bias correction used to align code and phase observations
+ *		The meaning of parameters for this case hare:
+ *		a the GLONASS signal identifier (C1C, C1P, C2C, C2P)
+ *		b the code phase bias correction
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
- * @param a the correction type (GAL=Galileo ai0 � ai2; GPSA=GPS alpha0 - alpha3; GPSB=GPS beta0  - beta3)
- * @param b a0 coefficient of 1-deg polynomial
- * @param b a0 coefficient of 1-deg polynomial
- * @param c a1 coefficient of 1-deg polynomial
- * @param d reference time for polynomial (Seconds into GPS/GAL week)
- * @param e reference week number (GPS/GAL week, continuous number)
- * @param f sbas (EGNOS, WAAS, or MSAS)
- * @param g UTC Identifier
+ * @param a meaning depends on the label identifier
+ * @param b meaning depends on the label identifier
+ * @param c meaning depends on the label identifier
+ * @param d meaning depends on the label identifier
+ * @param e meaning depends on the label identifier
+ * @param f meaning depends on the label identifier
+ * @param g meaning depends on the label identifier
  * @return true if header values have been set, false otherwise
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
@@ -524,6 +570,10 @@ bool RinexData::setHdLnData(RINEXlabel rl, const string &a, double b, double c, 
 	case TIMC:
 		timCorrection.push_back(TIMcorr(a, b, c, d, e, f, g));
 		setLabelFlag(TIMC);
+		return true;
+	case GLPHS:
+		gloPhsBias.push_back(GLPHSbias(a, b));
+		setLabelFlag(GLPHS);
 		return true;
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
@@ -547,6 +597,13 @@ bool RinexData::setHdLnData(RINEXlabel rl, const string &a, double b, double c, 
 	a = TO_PARAM_a; \
 	b = TO_PARAM_b; \
 	c = TO_PARAM_c; \
+	return getLabelFlag(LABEL_rl);
+///a macro to assing the values of the given members to the method parameters a, b, c and d
+#define GET_4PARAM(LABEL_rl, TO_PARAM_a, TO_PARAM_b, TO_PARAM_c, TO_PARAM_d) \
+	a = TO_PARAM_a; \
+	b = TO_PARAM_b; \
+	c = TO_PARAM_c; \
+	d = TO_PARAM_d; \
 	return getLabelFlag(LABEL_rl);
 
 /**getHdLnData gets data values related to line header records previously stored in the class object
@@ -689,9 +746,8 @@ bool RinexData::getHdLnData(RINEXlabel rl, char &a, int &b, vector <string> &c, 
 bool RinexData::getHdLnData(RINEXlabel rl, char &a, string &b, double &c, double &d, double &e) {
 	switch(rl) {
 	case ANTPHC:
-		d = antPhEoY;
 		e = antPhUoZ;
-		GET_3PARAM(ANTPHC,	antPhSys, antPhCode, antPhNoX)
+		GET_4PARAM(ANTPHC,	antPhSys, antPhCode, antPhNoX, antPhEoY)
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
 	}
@@ -726,8 +782,35 @@ bool RinexData::getHdLnData(RINEXlabel rl, char &a, string &b, string &c, unsign
 /**getHdLnData gets data values related to line header records previously stored in the class object
  *
  * The label identifier values in this overload can be:
- * - SYS to get data from the given system from "SYS / # / OBS TYPES" records
- * - TOBS to get data from the given system from "# / TYPES OF OBSERV" records
+ * - PHSH to get data from the given phshCorrection from "SYS / # / OBS TYPES" records
+ * <p> Values returned in parameters are undefined when method returns false.
+ *
+ * @param rl the label identifier of the RINEX header record/line data to be extracted
+ * @param a the system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo)
+ * @param b a vector with identifiers for each observable type (C1C, L1C, D1C, S1C...) contained in epoch data for this system
+ * @param index the position in the sequence of "# / TYPES OF OBSERV" or "SYS / # / OBS TYPES" records to get
+ * @return true if header values have been got, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::getHdLnData(RINEXlabel rl, char &a, string &b, double &c, vector<string> &d, unsigned int index) {
+    vector<PHSHcorr>::iterator aPHSHit;
+	switch(rl) {
+	case PHSH:
+		if (index < phshCorrection.size()) {
+		    aPHSHit = phshCorrection.begin() + index;
+			GET_4PARAM(SYS, systems[aPHSHit->sysIndex].system, aPHSHit->obsCode, aPHSHit->correction, aPHSHit->obsSats)
+		}
+		return false;
+	default:
+		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
+	}
+}
+
+/**getHdLnData gets data values related to line header records previously stored in the class object
+ *
+ * The label identifier values in this overload can be:
+ * - SYS to get data from the given system index from "SYS / # / OBS TYPES" records
+ * - TOBS to get data from the given system index from "# / TYPES OF OBSERV" records
  * <p> Values returned in parameters are undefined when method returns false.
  *
  * @param rl the label identifier of the RINEX header record/line data to be extracted
@@ -738,16 +821,20 @@ bool RinexData::getHdLnData(RINEXlabel rl, char &a, string &b, string &c, unsign
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
 bool RinexData::getHdLnData(RINEXlabel rl, char &a,  vector <string> &b, unsigned int index) {
-	switch(rl) {
-	case SYS:
-	case TOBS:
-		if (index < systems.size()) {
-			GET_2PARAM(SYS, systems[index].system, systems[index].obsType)
-		}
-		return false;
-	default:
-		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
-	}
+    vector <string> aVectorStr;
+    switch(rl) {
+        case SYS:
+        case TOBS:
+            if (index < systems.size()) {
+                //fill the vector string with obsTypes identifiers selected
+                for(vector<OBSmeta>::iterator it = systems[index].obsTypes.begin(); it < systems[index].obsTypes.end(); it++)
+                    if (it->sel) aVectorStr.push_back(it->id);
+                        GET_2PARAM(SYS, systems[index].system, aVectorStr)
+            }
+            return false;
+        default:
+            throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
+    }
 }
 
 /**getHdLnData gets data values related to line header records previously stored in the class object
@@ -793,7 +880,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, double &a, char &b, char &c) {
 	switch(rl) {
 	case VERSION:
 		b = fileType;
-		c = systemId;
+		c = sysToPrintId;
 		switch (version) {
 		case V210: a = 2.10; break;
 		case V302: a = 3.02; break;
@@ -803,7 +890,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, double &a, char &b, char &c) {
 		return getLabelFlag(VERSION);
 	case INFILEVER:
 		b = fileType;
-		c = systemId;
+		c = sysToPrintId;
 		switch (inFileVer) {
 		case V210: a = 2.10; break;
 		case V302: a = 3.01; break;
@@ -895,6 +982,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, int &a) {
  *
  * The label identifier values in this overload can be:
  * - WVLEN: to get default WAVELENGTH FACT L1/2 record data.
+ * - GLSLT; to get Glonas slot - frequency number data
  * <p> Values returned in parameters are undefined when method returns false.
  *
  * @param rl the label identifier of the RINEX header record/line data to be extracted
@@ -911,6 +999,11 @@ bool RinexData::getHdLnData(RINEXlabel rl, int &a, int &b, unsigned int index) {
 			GET_2PARAM(WVLEN, wvlenFactor[index].wvlenFactorL1, wvlenFactor[index].wvlenFactorL2)
 		}
 		return false;
+	case GLSLT:
+	    if (index < gloSltFrq.size()) {
+	        GET_2PARAM(GLSLT, gloSltFrq[index].slot, gloSltFrq[index].frqNum)
+	    }
+	    return false;
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
 	}
@@ -1030,6 +1123,33 @@ bool RinexData::getHdLnData(RINEXlabel rl, string &a, vector <double> &b, unsign
 /**getHdLnData gets data values related to line header records previously stored in the class object
  *
  * The label identifier values in this overload can be:
+ * - GLPHS to get GLONASS phase bias correction used to align code and phase observations
+ *		The meaning of parameters for this case hare:
+ *		a the GLONASS signal identifier (C1C, C1P, C2C, C2P)
+ *		b the code phase bias correction
+ * <p> Values returned in parameters are undefined when method returns false.
+ *
+ * @param rl the label identifier of the RINEX header record/line data to be extracted
+ * @param a meaning depends on the label identifier
+ * @param b meaning depends on the label identifier
+ * @return true if header values have been got, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::getHdLnData(RINEXlabel rl, string &a, double &b, unsigned int index) {
+	switch(rl) {
+		case GLPHS:
+			if (index < gloPhsBias.size()) {
+				GET_2PARAM(GLPHS, gloPhsBias[index].obsCode, gloPhsBias[index].obsCodePhaseBias)
+			}
+			return false;
+		default:
+			throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
+	}
+}
+
+/**getHdLnData gets data values related to line header records previously stored in the class object
+ *
+ * The label identifier values in this overload can be:
  * - TIMC to get in RINEX GPS nav header correction parameters to transform the system time to UTC or other time systems. Data to be included in record TIME SYSTEM CORR.
  * <p> Values returned in parameters are undefined when method returns false.
  *
@@ -1047,7 +1167,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, string &a, vector <double> &b, unsign
 bool RinexData::getHdLnData(RINEXlabel rl, string &a, double &b, double &c, int &d, int &e, string &f, int &g, unsigned int index) {
 	switch(rl) {
 	case TIMC:
-		if (getLabelFlag(TIMC) && (index < timCorrection.size())) {
+		if (index < timCorrection.size()) {
 			a = timCorrection[index].corrType;
 			b = timCorrection[index].a0;
 			c = timCorrection[index].a1;
@@ -1055,7 +1175,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, string &a, double &b, double &c, int 
 			e = timCorrection[index].refWeek;
 			f = timCorrection[index].sbas;
 			g = timCorrection[index].utcId;
-			return true;
+			return getLabelFlag(TIMC);
 		}
 		return false;
 	default:
@@ -1065,7 +1185,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, string &a, double &b, double &c, int 
 #undef GET_1PARAM
 #undef GET_2PARAM
 #undef GET_3PARAM
-
+#undef GET_4PARAM
 
 /**lblTOid gives the label identification that best matches the label name passed (may be incomplete)
  * The label passed is searched in the table of labels. It is returned the identifier of the firts that
@@ -1137,20 +1257,8 @@ void RinexData::clearHeaderData() {
 	//*setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 }
 
-/**obsV2toV3 provides the observable type name in V3 of a given V2 name 
- * 
- * @param obsTypeName the given observable type in V210 format
- * @return the observable type name in V302, or an empty string if this type does not exits in V3
- */
-string RinexData::obsV2toV3(const string &obsTypeName) {
-	for (vector<EQUIVobs>::iterator it = obsNamEq.begin(); it != obsNamEq.end(); ++it)
-		if(it->v2name.compare(obsTypeName) == 0) return it->v3name;
-	return string();
-}
-
 /*methods to process and collect current epoch data
 */
-
 /**setEpochTime sets epoch time to the given week number and seconds (time of week), the receiver clock bias, and the epoch flag.
  * Flag values can be (see RINEX documents): 0: OK; 1: power failure between previous and current epoch; or >1: Special event.
  * Special events can be: 2: start moving antenna; 3: new site occupation (end of kinem. data, at least MARKER NAME record follows);
@@ -1179,7 +1287,7 @@ double RinexData::setEpochTime(int weeks, double secs, double bias, int eFlag) {
  * @param weeks the week number (from 01/06/1980)
  * @param secs the seconds from the beginning of the week
  * @param bias the receiver clock offset applied to epoch and observables (if any)
- * @param eFlag the epoch flag stating the kind of data associted to this epoch (observables, special events, ...)
+ * @param eFlag the epoch flag stating the kind of data associated to this epoch (observables, special events, ...)
  * @return the GPS time in seconds from the GPS ephemeris (6/1/1980)
  */
 double RinexData::getEpochTime(int &weeks, double &secs, double &bias, int &eFlag) {
@@ -1202,24 +1310,24 @@ double RinexData::getEpochTime(int &weeks, double &secs, double &bias, int &eFla
  *
  * @param sys the system identification (G, S, ...) the measurement belongs
  * @param sat the satellite PRN the measurement belongs
- * @param obsType the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.01
+ * @param obsTp the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.01
  * @param value the value of the measurement
- * @param lol the loss o lock indicator. See RINEX V2.10
+ * @param lli the loss o lock indicator. See RINEX V2.10
  * @param strg the signal strength. See RINEX V3.01
  * @param tTag the time tag for the epoch this measurement belongs
  * @return true if data belong to the current epoch, false otherwise
  */
-bool RinexData::saveObsData(char sys, int sat, string obsTp, double value, int lol, int strg, double tTag) {
+bool RinexData::saveObsData(char sys, int sat, string obsTp, double value, int lli, int strg, double tTag) {
     const string msgSysObs(" the system, in observable=");
-	int sx = sysInx(sys);	//system index
+	int sx = systemIndex(sys);	//system index
 	if (epochObs.empty()) epochTimeTag = tTag;
 	bool sameEpoch = epochTimeTag == tTag;
 	//check if this observable type for this system shall be stored
 	if (sameEpoch) {
 		if (sx >= 0) {
-			for (unsigned int ox = 0; ox < systems[sx].obsType.size(); ox++)
-				if (obsTp.compare(systems[sx].obsType[ox]) == 0) {
-					epochObs.push_back(SatObsData(tTag, sx, sat, ox, value, lol, strg));
+			for (unsigned int ox = 0; ox < systems[sx].obsTypes.size(); ox++)
+				if (obsTp.compare(systems[sx].obsTypes[ox].id) == 0) {
+					epochObs.push_back(SatObsData(tTag, sx, sat, ox, value, lli, strg));
 					return true;
 				}
 		}
@@ -1234,30 +1342,28 @@ bool RinexData::saveObsData(char sys, int sat, string obsTp, double value, int l
  * @param sat the satellite PRN the measurement belongs
  * @param obsTp the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.01
  * @param value the value of the measurement
- * @param lol the loss o lock indicator. See RINEX V2.10
+ * @param lli the loss of lock indicator. See RINEX V2.10
  * @param strg the signal strength. See RINEX V3.01
- * @param tTag the time tag for the epoch this measurement belongs
  * @param index the position in the sequence of opoch observables to extract
  * @return true if data for the given index exist, false otherwise
  */
-bool RinexData::getObsData(char &sys, int &sat, string &obsTp, double &value, int &lol, int &strg, double &tTag, unsigned int index) {
+bool RinexData::getObsData(char &sys, int &sat, string &obsTp, double &value, int &lli, int &strg, unsigned int index) {
 	if (epochObs.size() <= index) return false;
 	vector<SatObsData>::iterator it = epochObs.begin() + index;
 	sys = systems[it->sysIndex].system;
 	sat = it->satellite;
-	obsTp = systems[it->sysIndex].obsType[it->obsTypeIndex];
+	obsTp = systems[it->sysIndex].obsTypes[it->obsTypeIndex].id;
 	value = it->obsValue;
-	lol = it->lossOfLock;
+	lli = it->lossOfLock;
 	strg = it->strength;
-	//TBC tTag = it->obsTimeTag;
-	tTag = epochTimeTag;
 	return true;
 }
 
 /**setFilter set the selected values for systems, satellites and observables to filter header, observation and navigation data.
- * Filtering data are reset (to 'no filter') and values passed (if any) are stored and will be used to filter epoch data in the following way:
- * - an empty list will be interpreted as there are not "a priori" excluded elements. For example, an empty list of satellites means that all satellites will pass the filter.
+ * Filtering data are reset (to 'no filter') and values passed (if any) will be used to filter epoch data in the following way:
+ * - an empty list of selected satellites means that data from all satellites will pass the filter.
  * - a non-empty list of selected satellites states the ones that will pass the filter. Data belonging to satellites not in the list will not pass the filter. 
+ * - an empty list of selected observables means that no changes will be made on the current selection
  * - a non-empty list of selected observables states the ones that will pass the filter. Data belonging to other observables will not pass the filter.
  * The filtering values set will be used by the methods filterObsData and filterNavData to remove observation and navigation data not selected from a RinexData object.
  * The method verifies coherence of the given data with regard to what has been defined in header records:
@@ -1271,140 +1377,138 @@ bool RinexData::getObsData(char &sys, int &sat, string &obsTp, double &value, in
  * @param selObs the vector containing the list of selected observables. An observable is identified by the system identification char (G, E, R, ...) followed by the observation code as defined in RINEX v3.02
  * @return true when filtering data are coherent or not filtering is requested, false when filtering data are not coherent
  */
-//bool RinexData::setFilter(vector<string>& selSat, vector<string>& selObs) {
 bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
-    const string msgFilterCleared("Filtering data cleared");
-    const string msgFilterStated("Filtering data stated: ");
+#define SET_OBS_SELECTED \
+    for (obsIdx = 0; obsIdx < systems[sysIdx].obsTypes.size(); obsIdx++) { \
+        if (systems[sysIdx].obsTypes[obsIdx].id.compare((*itSelObs).substr(1)) == 0) { \
+            selectedObs.push_back(SELobs(sysIdx, obsIdx)); \
+            found = true; \
+            break; \
+        } \
+    }
+
+    const string msgFilterCleared("Filtering data not stated");
     const string msgWrongSysSat("Wrong sys-sat format (Ignored for filtering)=");
-    const string msgSelSysSatNav("Selected sys-sats in nav=");
-    const string msgSelSysInSat(" the system in selected satellite=");
-    const string msgSelSysInObs(" the system in selected observable=");
     const string msgSelObs(" the selected observable=");
-    const string msgSelectedSys("Selected system, satellites, observations=");
-    const string msgExcludedSys("Excluded systems=");
-	vector<int> inxSelSys;	//index in vector <GNSSsystem> systems of selected system
-	//a pair for each observable to store the system index it belong, and its observable index in this system 
-	vector<int> inxSysObs;
-	vector<int> inxObsSys;
-	char s, b[5];
-	int sysIdx, n, o;
-	bool isWrong, areCoherent;
-	string aStr;
-	//Reset selection data for systems, satellites or observables as per GNSSsystem constructor
-	applyNavFilter = applyObsFilter = false;
-	selectedSats.clear();
-	for (vector<GNSSsystem>::iterator itSystems = systems.begin(); itSystems != systems.end(); itSystems++) {
-		itSystems->selSystem = true;
-		for (vector <bool>::iterator itObs = itSystems->selObsType.begin(); itObs != itSystems->selObsType.end(); itObs++)
-			(*itObs) = true;
-	}
-	if (selSat.empty() && selObs.empty()) {
-		plog->info(msgFilterCleared);
-		return true;
-	}
-	plog->info(msgFilterStated);
-	//1st: save in selectedSats with normalize notation S[nn] the selected satellites passed (if any)
-	for (vector<string>::iterator itSelSat = selSat.begin(); itSelSat != selSat.end(); itSelSat++) {
-		switch (sscanf((*itSelSat).c_str(),"%c%d", &s, &n)) {
-		case 1:
-			selectedSats.push_back(string(1,s));
-			break;
-		case 2:
-			sprintf(b, "%1c%02.2d", s, n);
-			selectedSats.push_back(string(b));
-			break;
-		default:
-			plog->warning(msgWrongSysSat + (*itSelSat));
-		}
-	}
-	//log selected satellites data got to be used for filtering navigation data
-	if ((applyNavFilter = !selectedSats.empty())) {
-		aStr = msgSelSysSatNav;
-		for (vector<string>::iterator itSelSat = selectedSats.begin(); itSelSat != selectedSats.end(); itSelSat++)
-			aStr += msgSpace + (*itSelSat);
-		plog->info(aStr);
-	}
-	//2nd: set member parameters used to filter observation data.  
-	areCoherent = true;
-	//verify given data for selected systems - satellites. Save system index of correct ones, and if prn given, save it
-	for (vector<string>::iterator itSelSat = selectedSats.begin(); itSelSat != selectedSats.end(); itSelSat++)
-		if ((sysIdx = sysInx((*itSelSat).at(0))) < 0) {
-			plog->warning(msgNotInSYS + msgSelSysInSat + (*itSelSat));
-			areCoherent = false;
-		}  else {
-			inxSelSys.push_back(sysIdx);
-			if ((*itSelSat).size() > 1) systems[sysIdx].selSat.push_back(stoi((*itSelSat).substr(1)));
-		}
-	//verify given data for selected systems - observations. Save system index and observation index of correct ones
-	for (vector<string>::iterator itSelObs = selObs.begin(); itSelObs != selObs.end(); itSelObs++)
-		if ((sysIdx = sysInx((*itSelObs).at(0))) < 0) {
-			plog->warning(msgNotInSYS + msgSelSysInObs + (*itSelObs));
-			areCoherent = false;
-		} else {
-			n = 0;
-			isWrong = true;
-			for (vector<string>::iterator itObsType = systems[sysIdx].obsType.begin(); itObsType != systems[sysIdx].obsType.end(); itObsType++, n++)
-				if((*itObsType).compare((*itSelObs).substr(1)) == 0) {
-					inxSelSys.push_back(sysIdx);
-					inxSysObs.push_back(sysIdx);
-					inxObsSys.push_back(n);
-					isWrong = false;
-					break;
-				}
-			if (isWrong) {
-				plog->warning(msgNotInSYS + msgSelObs + (*itSelObs));
-				areCoherent = false;
-			}
-		}
-	//set flags for selected systems
-	if (!inxSelSys.empty()) {
-		//reset to false for all systems the flag stating that observation data for a given system will be filtered 
-		for (vector<GNSSsystem>::iterator itSystems = systems.begin(); itSystems != systems.end(); itSystems++)
-			itSystems->selSystem = false;
-		//set to true the system filtering data flag for the systems having filtering data
-		for (vector<int>::iterator itSelSys = inxSelSys.begin(); itSelSys != inxSelSys.end(); itSelSys++)
-			systems[*itSelSys].selSystem = true;
-	}
-	//set flags for selected observables
-	if (!inxObsSys.empty()) {
-		//reset to false all observables of each system having selected observables 
-		for (n = 0; n != inxSysObs.size(); n++)
-			for (o = 0; o != systems[inxSysObs[n]].selObsType.size(); o++) systems[inxSysObs[n]].selObsType[o] = false;
-		//set to true observables selected
-		for (n = 0; n != inxSysObs.size(); n++) systems[inxSysObs[n]].selObsType[inxObsSys[n]] = true;
-	}
-	//log observation filtering data
-	for (vector<GNSSsystem>::iterator itSystems = systems.begin(); itSystems != systems.end(); itSystems++) {
-		if (itSystems->selSystem) {
-			applyObsFilter = true;
-			aStr = msgSelectedSys + string(1, itSystems->system) + msgComma;
-			for (vector<int>::iterator itSelSat = itSystems->selSat.begin(); itSelSat != itSystems->selSat.end(); itSelSat++)
-				aStr += to_string((long long) *itSelSat) + msgSpace;
-			aStr += msgComma;
-			n = 0;
-			for (vector<string>::iterator itObsType = itSystems->obsType.begin(); itObsType != itSystems->obsType.end(); itObsType++, n++)
-				if (itSystems->selObsType[n]) aStr += (*itObsType) + msgSpace;
-			plog->info(aStr);
-		} else plog->info(msgExcludedSys + string(1, itSystems->system));
-	}
-	return areCoherent;
+    const string msgNoSel("There are not valid data for filtering");
+    const string msgFilterStated("Filtering data stated: ");
+    const string msgSelSys("Selected system: satellites: observables= ");
+    struct SELsats {    //to store selSat data after verification
+        int sysIndex;
+        int satNumber;
+        //constructor
+        SELsats(int si, int ns) {
+            sysIndex = si;
+            satNumber = ns;
+        }
+    };
+    vector<SELsats> selectedSats;
+    struct SELobs {     //to store selObs after verification
+        int sysIndex;
+        int obsIndex;
+        //Constructor
+        SELobs(int si, int oi) {
+            sysIndex = si;
+            obsIndex = oi;
+        }
+    };
+    vector<SELobs> selectedObs;
+    vector<GNSSsystem>::iterator itsys;
+    vector<int> inxSysObs;
+    vector<int> inxObsSys;
+    char s, b[5];
+    int sysIdx, obsIdx, n, o;
+    bool found, areCoherent;
+    string aStr;
+
+    if (selSat.empty() && selObs.empty()) {
+        plog->info(msgFilterCleared);
+        return true;
+    }
+    plog->info(msgFilterStated);
+    //1st: Verify input data in selSat. Save system identification and satellite number of correct ones
+    for (vector<string>::iterator it = selSat.begin(); it != selSat.end(); it++) {
+        switch (sscanf((*it).c_str(), "%c%d", &s, &n)) {
+            case 1:
+                if ((sysIdx = systemIndex(s)) >= 0) selectedSats.push_back(SELsats(sysIdx, -1));
+                break;
+            case 2:
+                if ((sysIdx = systemIndex(s)) >= 0) selectedSats.push_back(SELsats(s, n));
+                break;
+            default:
+                sysIdx = -1;
+        }
+        if (sysIdx < 0) plog->warning(msgWrongSysSat + (*it));
+    }
+    //verify given data for selected systems - observations. Save system index and observation index of correct ones
+    for (vector<string>::iterator itSelObs = selObs.begin(); itSelObs != selObs.end(); itSelObs++) {
+        found = false;
+        if ((sysIdx = systemIndex((*itSelObs).at(0))) >= 0) {
+            SET_OBS_SELECTED
+        } else if ((*itSelObs).at(0) == 'M') {
+            for (sysIdx = 0; sysIdx < systems.size(); sysIdx++) {
+                SET_OBS_SELECTED
+            }
+        }
+        if (!found) plog->warning(msgNotInSYS + msgSelObs + (*itSelObs));
+    }
+    if (selectedSats.empty() && selectedObs.empty()) {
+        plog->warning(msgNoSel);
+        return false;
+    }
+    //there is at least a system selected to filter data. Reset select data in systems
+    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+        it->selSystem = false;
+        it->selSat.clear();
+        if (!selectedObs.empty()) {
+            for (vector<OBSmeta>::iterator itobs = it->obsTypes.begin(); itobs != it->obsTypes.end(); itobs++) itobs->sel = false;
+        }
+    }
+    //update select data in systems for satelite selected
+    for (vector<SELsats>::iterator it = selectedSats.begin(); it!= selectedSats.end(); it++) {
+        systems[it->sysIndex].selSystem = true;
+        systems[it->sysIndex].selSat.push_back(it->satNumber);
+    }
+    //update observation data in systems for observations selected
+    for (vector<SELobs>::iterator it = selectedObs.begin(); it != selectedObs.end(); it++) {
+        systems[it->sysIndex].selSystem = true;
+        systems[it->sysIndex].obsTypes[it->obsIndex].sel = true;
+    }
+    //log filtering data
+    plog->info(msgFilterStated);
+    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+        if (it->selSystem) {
+            aStr = msgSelSys + string(1, it->system) + msgColon;
+            for (vector<int>::iterator itsat = it->selSat.begin(); itsat != it->selSat.end(); itsat++) {
+                aStr += msgSpace + to_string(*itsat);
+            }
+            aStr += msgColon;
+            for (vector<OBSmeta>::iterator itobs = it->obsTypes.begin(); itobs != it->obsTypes.end(); itobs++) {
+                if (itobs->sel) aStr += msgSpace + itobs->id;
+            }
+            plog->info(aStr);
+        }
+    }
+    return true;
+#undef SET_OBS_SELECTED
 }
 
 /**filterObsData if filtering data have been stated using setFilter method, removes from current epoch observation data on systems, satellites or observables not selected.
  *
+ * @param removeNotPrt when true they are removed also the observables not to be printed
  * @return true when it remains any epoch data after filtering, false when no data remain
  */
-bool RinexData::filterObsData() {
+bool RinexData::filterObsData(bool removeNotPrt) {
 	vector<SatObsData>::iterator it;
-	if (applyObsFilter) {	//remove from epochObs the observables not selected
-		it = epochObs.begin();
-		while (it != epochObs.end()) {
-			if (!systems[it->sysIndex].selSystem ||
-					!systems[it->sysIndex].selObsType[it->obsTypeIndex] ||
-					!isSatSelected(it->sysIndex, it->satellite)) {	//system, observable or satellite not selected
-				it = epochObs.erase(it);
-			} else it++;
-		}
+	it = epochObs.begin();
+	while (it != epochObs.end()) {
+        //check if its system, observable or satellite is not selected, or if requested, the observable will not be printed
+		if (!systems[it->sysIndex].selSystem ||
+					!systems[it->sysIndex].obsTypes[it->obsTypeIndex].sel ||
+					!isSatSelected(it->sysIndex, it->satellite) ||
+                    (removeNotPrt && !systems[it->sysIndex].obsTypes[it->obsTypeIndex].prt)) {
+			it = epochObs.erase(it);
+		} else it++;
 	}
 	return !epochObs.empty();
 }
@@ -1467,21 +1571,12 @@ bool RinexData::getNavData(char& sys, int &sat, double (&bo)[8][4], double &tTag
  * @return true when it remains any epoch data after filtering, false when no data remain
  */
 bool RinexData::filterNavData() {
-	char buffer[5];
 	vector<SatNavData>::iterator it;
-	vector<string>::iterator itsel;
-	if (applyNavFilter) {	//remove from epochNav the system-satellites not selected
-		it = epochNav.begin();
-		while (it != epochNav.end()) {
-			sprintf(buffer, "%1c%02.2d", it->systemId, it->satellite);	//obtain a string with system-satellite identification
-			for (itsel = selectedSats.begin();	//look for it in the selected system-satellites list
-				(itsel != selectedSats.end()) && (string(buffer).compare(0,(*itsel).size(), *itsel) != 0);
-				++itsel);
-			if (itsel == selectedSats.end()) it = epochNav.erase(it);
-			else it++;
-		}
+	it = epochNav.begin();
+	while (it != epochNav.end()) {
+        if (!isSatSelected(systemIndex(it->systemId), it->satellite)) it = epochNav.erase(it);
+        else it++;
 	}
-	sort(epochNav.begin(), epochNav.end());
 	return !epochNav.empty();
 }
 
@@ -1546,49 +1641,59 @@ string RinexData::getNavFileName(string prefix, char suffix, string country) {
  * @throws error message string when header cannot be printed
  */
 void RinexData::printObsHeader(FILE* out) {
-	string aStr;
 	///Before printing, set and verify VERSION data record:
 	if (version == VTBD) version = inFileVer;
 	if (version == VTBD) throw msgVerTBD;
 	/// - Set file type for Observation.
 	fileType = 'O';
-	fileTypeSfx = "BSERVATION DATA";
 	/// - Set the system identification for the one to be printed.
-	///	  If there are observables for several systems, set it to 'M'.
-	int anInt = 0;
-	for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++)
-		if (it->selSystem) {
-			anInt++;
-			systemId = it->system;
-		}
-	if (anInt == 0) throw msgNotSys;
-	if(anInt > 1) systemId = 'M';
-	systemIdSfx = getSysDes(systemId);
+	setSysToPrintId(msgNotSys);
 	setLabelFlag(VERSION);
 	/// - Depending on version to be printed, set "# / TYPES OF OBSERV" or "SYS / # / OBS TYPES" data record.
-	if(version == V210) {	//extract from systems/observable type names the ones to be printed when V210
-		v2ObsLst.clear();
-		for (unsigned int i=0; i<systems.size(); i++) {
-			for (unsigned int j=0; j<systems[i].obsType.size(); j++) {
-				aStr = obsV3toV2(i, j);
-				if (v2ObsInx(aStr) == -1) v2ObsLst.push_back(aStr);
-			}
-		}
+	if(version == V210) {
+        //in V210 all systems shall have the same observables to print
+        //compute aVectorBool setting to true the related obsTypes that shall be printed
+        //Note that only V210 obsTypes are taken into account
+        vector<bool> aVectorBool;
+        aVectorBool.insert(aVectorBool.begin(), numberV2ObsTypes, false);
+        for (vector<GNSSsystem>::iterator itsys = systems.begin(); itsys != systems.end(); itsys++) {
+            for (int i = 0; i < numberV2ObsTypes; i++) {
+                itsys->obsTypes[i].prt = itsys->obsTypes[i].sel;
+                aVectorBool[i] = aVectorBool[i] || itsys->obsTypes[i].prt;
+            }
+        }
+        //set in systems the obTypes data related to printing
+        bool isAny;
+        for (vector<GNSSsystem>::iterator itsys = systems.begin(); itsys != systems.end(); itsys++) {
+            //check if in this system there is any obsType to print
+            isAny = false;
+            for (int i = 0; i < numberV2ObsTypes; i++) if (itsys->obsTypes[i].prt) { isAny = true; break; }
+            if (isAny) {
+                //obsType shall be printed using a common pattern for all systems
+                for (int i = 0; i < numberV2ObsTypes; i++) itsys->obsTypes[i].prt = aVectorBool[i];
+            }
+            for (int i = numberV2ObsTypes; i < itsys->obsTypes.size(); i++) itsys->obsTypes[i].prt = false;
+        }
 		setLabelFlag(SYS, false);
 		setLabelFlag(TOBS);
 	} else {	//version will be V302
+        //determine de obsTypes to print in this version (all selected)
+        for (vector<GNSSsystem>::iterator itsys = systems.begin(); itsys != systems.end(); itsys++) {
+            for (vector<OBSmeta>::iterator itobs = itsys->obsTypes.begin(); itobs != itsys->obsTypes.end(); itobs++) {
+                itobs->prt = itobs->sel;
+            }
+        }
 		setLabelFlag(SYS);
 		setLabelFlag(TOBS, false);
 	}
+    setSuffixes();
     setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	///Finally, for each observation header record belonging to the current version and having data defined, print it.
 	for (vector<LABELdata>::iterator it = labelDef.begin(); it != labelDef.end(); it++) {
 		if (((it->type & OBSMSK) != OBSNAP) && (it->ver == VALL || it->ver == version)) {
-			if (it->hasData)
-				printHdLineData(out, it);
-			else if ((it->type & OBSMSK) == OBSOBL)
-				///Log a warning message when the record to be printed is obligatory, but has not data.
-				plog->warning(valueLabel(it->labelID, msgHdRecNoData));
+			if (it->hasData) printHdLineData(out, it);
+            ///Log a warning message when the record to be printed is obligatory, but has not data.
+			else if ((it->type & OBSMSK) == OBSOBL) plog->warning(valueLabel(it->labelID, msgHdRecNoData));
 		}
 	}
 }
@@ -1636,27 +1741,15 @@ void RinexData::printObsEpoch(FILE* out) {
 	case 6:	//cycle slip records follow (same format as per observables)
 		// If data filtering was requested, remove observation data not selected.
 		// Even the whole epoch could be removed if it is outside of a selected time period.
-		// End if it does not remain any data to print.
-		if (!filterObsData()) return;
+		// Ends if it does not remain any data to print.
+		if (!filterObsData(true)) return;
+        stable_sort(epochObs.begin(), epochObs.end());
+        //count the number of different satellites with data in this epoch (at least one)
+        nSatsEpoch = 1;
+        for (it = epochObs.begin()+1; it != epochObs.end(); it++) if (DIFFERENT_SAT(it)) nSatsEpoch++;
 		switch (version) {
 		case V210:	//RINEX version 2.10
-			//change the observable type index as per V210 and remove observations not allowed in V210
-			it = epochObs.begin();
-			while (it != epochObs.end()) {
-				anInt = v2ObsInx(obsV3toV2(it->sysIndex, it->obsTypeIndex));
-				if (anInt >= 0) {
-					it->obsTypeIndex = anInt;
-					it++;
-				} else it = epochObs.erase(it);
-			}
-			//check if it remains anything to print
-		 	if (epochObs.empty()) return;
-			//sort observable data items available by system, satellite and new measurement type
-			if (!is_sorted(epochObs.begin(), epochObs.end())) sort(epochObs.begin(), epochObs.end());
-			//count the number of different satellites with data in this epoch (at least one)
-			nSatsEpoch = 1;
-			for (it = epochObs.begin()+1; it != epochObs.end(); it++) if (DIFFERENT_SAT(it)) nSatsEpoch++;
-	 		//start printing epoch 1st line
+            //start printing epoch 1st line
 	 		fprintf(out, "%s  %1d%3d", timeBuffer, epochFlag, nSatsEpoch);
 			//append the different systems and satellites existing in this epoch.
 			//if number of satellites is greather than 12, use continuation lines. Clock offset is printed only in the 1st one
@@ -1678,25 +1771,20 @@ void RinexData::printObsEpoch(FILE* out) {
 				anInt++;
 			}
 			if (clkOffsetPrinted) fprintf(out, "\n");
-			//else fprintf(out, "%12.9f\n", epochClkOffset);
 			else fprintf(out, "%s\n", clkOffsetBuffer);
-			//print epoch measurement lines. For each satellite in this epoch, print a line with their measurements, and remove them
-			while (printSatObsValues(out, 5));
+			//for each satellite in this epoch, print their observables and remove them from epochObs
+			while (printSatObsValues(out, V210))
+			    ;
 	 		break;
 		case V302:	//RINEX version 3.00
-			//sort observable data items available by system, satellite and measurement type
-			if (!is_sorted(epochObs.begin(), epochObs.end())) sort(epochObs.begin(), epochObs.end());
-			//count the number of different satellites with data in this epoch (at least one)
-			nSatsEpoch = 1;
-			for (it = epochObs.begin()+1; it != epochObs.end(); it++) if (DIFFERENT_SAT(it)) nSatsEpoch++;
-			//print epoch 1st line
- 			//*fprintf(out, "%s  %1d%3d%5c%15.12f%3c\n", timeBuffer, epochFlag, nSatsEpoch, ' ', epochClkOffset, ' ');
             fprintf(out, "%s  %1d%3d%5c%s%3c\n", timeBuffer, epochFlag, nSatsEpoch, ' ', clkOffsetBuffer, ' ');
-			//for each satellite belonging to this epoch,  print a line with their measurements (they are removed just after printed)
+			//for each satellite in this epoch,  print a line with their measurements (they are removed just after printed)
 			do {
 				fprintf(out, "%1c%02d", systems[epochObs[0].sysIndex].system, epochObs[0].satellite);
- 			} while (printSatObsValues(out, 999));
+ 			} while (printSatObsValues(out, V302));
  			break;
+		default:
+		     break;
  		}
 		break;
 	case 2:	//start moving antenna event
@@ -1721,11 +1809,11 @@ void RinexData::printObsEpoch(FILE* out) {
 		}
 		break;
 	}
+#undef DIFFERENT_SAT
 }
 
 /**printEndOfFile prints the RINEX end of file event lines.
  *
- * 
  * @param out	The already open print file where RINEX data will be printed
  */
  void RinexData::printObsEOF(FILE* out) {
@@ -1742,52 +1830,50 @@ void RinexData::printObsEpoch(FILE* out) {
  * @throws error message string when header cannot be printed
  */
 void RinexData::printNavHeader(FILE* out) {
-	///Before printing, set and verify VERSION data record. Independent of the version to be printed. It is initially
-	///set as per version V3.02: file type will be 'N', and system identification the one of the system to print, or
-	///'M' if there are data for several systems.
-	///<p>Note that in RINEX V3.02 a navigation file can include ephemeris from several navigation systems, but in V2.10 a navigation file can include
-	///data for only one system.
-	///<p>When version to print is V2.10 and data comes from a V3.01 file or have been set by the program, the system to be printed is usually stated
-	///using the setFilter method, but if it is not, it is assumed that the selected one is the system having observation data.
-	///In case filter was not stated and no observation data exists, the file cannot be printed and an exception is thrown.
-	const string msgNotNav("Cannot generate V2.10 navigation file for system ");
+	///Before printing, set VERSION data record which depends on the version to be printed.
+	///<p>Note that in RINEX V3.02 a navigation file can include ephemeris from several navigation systems,
+	/// but in V2.10 a navigation file can include data for only one system.
+	const string msgNotNav("Cannot generate navigation file for system ");
+	int n = 0;
 	if (version == VTBD) version = inFileVer;
-	switch (version) {
-	case V210:
-		/// - When version to print is V2.10, sets file type 
-		switch (inFileVer) {
-		case VTBD:
-			fileType = 'N';
-		case V302:	//only one system can be printed: the first selected one
-			if (!applyNavFilter) {
-				if (systems.size() == 1) {	//it is assumed the selected one is the sys having obs data
-					selectedSats.push_back(string(1,systems[0].system));
-					applyNavFilter = true;
-				} else throw msgNotNav + "UNSELECTED";
+	switch (version) {	//version to print
+		case V210:
+			//Set values for a V2.10 navigation file
+			sysToPrintId = 0;
+			//look for the first system selected
+			for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+				if (it->selSystem) {
+					sysToPrintId = it->system;
+			 		switch (sysToPrintId) {
+			 			case 'G': fileType = 'N'; break;	//GPS nav
+			 			case 'R': fileType = 'G'; break;	//GLONASS nav
+			 			case 'S': fileType = 'H'; break;	//SBAS nav
+			 			default : throw msgNotNav + string(1, it->system); break;
+			 		}
+			 		break;
+			 	}
 			}
-			systemId = selectedSats[0].at(0);
-            break;
-        case V210:	//nothing to change w.r.t. data read
-        default:
-            break;
-		}
-		break;
-	case V302:
-		switch (inFileVer) {
-		case VTBD:
-			fileType = 'N';
-			systemId = 'M';
-            break;
-        case V210:
-        case V302:
-        default:    //nothing to change w.r.t. data read
-            break;
-		}
-		break;
-	default: throw msgVerTBD;
-	}
-	fileTypeSfx = "AVIGATION DATA";
-	systemIdSfx = getSysDes(systemId);
+			if (sysToPrintId == 0) throw msgNotNav + "UNSELECTED";
+			break;
+		case V302:
+		 	fileType = 'N';
+		 	setSysToPrintId(msgNotNav);
+/*
+ * //count the number of systems to print and set value for sysToPrintId
+		 	for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++)
+				if (it->selSystem) {
+					sysToPrintId = it->system;
+					n++;
+				}
+			//if more than one selected, set Mixed value
+			if (n == 0) throw msgNotNav + "UNSELECTED";
+		 	else if (n > 1) sysToPrintId = 'M';
+*/
+			break;
+		default:
+		 	throw msgVerTBD;
+	 }
+    setSuffixes();
 	setLabelFlag(VERSION);
     setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	///Finally, for each navigation header record belonging to the current version and having data defined, it is printed.
@@ -1844,10 +1930,10 @@ void RinexData::printNavEpochs(FILE* out) {
 	if (!filterNavData()) return;
 	//sort epochs available by time tag, system, and satellite
 	sort(epochNav.begin(), epochNav.end());
-	plog->finest(msgNavEpochsSys + string(1, systemId) + msgColon);
+	plog->finest(msgNavEpochsSys + string(1, sysToPrintId) + msgColon);
 	it = epochNav.begin();
 	while (it != epochNav.end()) {
-		if ((version == V210) && (it->systemId != systemId)) {	//in V210 only sats belonging to one system are printed
+		if ((version == V210) && (it->systemId != sysToPrintId)) {	//in V210 only sats belonging to one system are printed
 			plog->finest(msgNavEpochIgn + string(1,it->systemId) + msgComma + to_string(it->satellite));
 			it++;
 		} else {
@@ -1895,6 +1981,7 @@ void RinexData::printNavEpochs(FILE* out) {
 
 /**
  * hasNavEpochs checks if it exists navigation data saved in the RINEX object for the given constellation.
+ *
  * @param sys the constellation identification
  * @return true if it exists navigation data for the given constellation, false otherwise
  */
@@ -2049,14 +2136,8 @@ int RinexData::readNavEpoch(FILE* input) {
 		} \
 		startPos1st += 19;
 
-    const string msgErrBO("Error Broad.Orb.[");
-    const string msgWrongVersion("Wrong version / file type");
-    const string msgWrongSysPRN("Wrong system or PRN");
-    const string msgWrongInFile("Wrong input file version");
-    const string msgNewEp("New epoch.");
-    const string msgStored("Stored.");
-    
-	char lineBuffer[100], sysSat;
+	char sysSat;
+    char lineBuffer[100];
 	int anInt, prnSat, nBroadcastOrbits, nEphemeris;
 	double atow, attag;
 	char *startPos1st;
@@ -2072,11 +2153,7 @@ int RinexData::readNavEpoch(FILE* input) {
 	double second = 0.0;
 	switch (inFileVer) {
 	case V210:
-		switch (fileType) {
-		case 'N': sysSat = 'G'; break;	//a GPS navigation file
-		case 'G': sysSat = 'R'; break;	//a GLONASS navigation file
-		default: LOG_ERR_AND_RETURN(msgWrongVersion, 3)
-		}
+	    sysSat = sysToPrintId;
 		if (sscanf(lineBuffer, "%2d", &prnSat) != 1) LOG_ERR_AND_RETURN(msgWrongSysPRN, 3)
 		if (sscanf(lineBuffer+3, "%2d %2d %2d %2d %2d%5lf", &year, &month, &day, &hour, &minute, &second) != 6)
 			LOG_ERR_AND_RETURN(msgWrongDate, 4)
@@ -2098,12 +2175,14 @@ int RinexData::readNavEpoch(FILE* input) {
 	retCode = 1;
 	for (int j = 1; j < 4; j++) { GET_BO(0, j) }
 	switch (sysSat) {
-	//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc 
-	case 'G': nBroadcastOrbits = 8; nEphemeris = 26; break;
-	case 'E': nBroadcastOrbits = 8; nEphemeris = 25; break;
-	case 'S': nBroadcastOrbits = 4; nEphemeris = 12; break;
-	case 'R': nBroadcastOrbits = 4; nEphemeris = 12; break;
-	default: LOG_ERR_AND_RETURN(msgWrongSysPRN+string(1, sysSat), 2)
+	//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
+	    case 'J':
+	    case 'C':
+	    case 'G': nBroadcastOrbits = 8; nEphemeris = 26; break;
+	    case 'E': nBroadcastOrbits = 8; nEphemeris = 25; break;
+	    case 'S': nBroadcastOrbits = 4; nEphemeris = 12; break;
+	    case 'R': nBroadcastOrbits = 4; nEphemeris = 12; break;
+	    default: LOG_ERR_AND_RETURN(msgWrongSysPRN+string(1, sysSat), 2)
 	}
 	//read lines of broadcast orbit data in next lines
 	for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
@@ -2126,7 +2205,7 @@ int RinexData::readNavEpoch(FILE* input) {
 			msgPrfx += msgNewEp;
 		}
 		msgPrfx += msgStored;
-		epochNav.push_back(SatNavData(attag, sysSat, prnSat, bo));
+        epochNav.push_back(SatNavData(attag, sysToPrintId, prnSat, bo));
 	}
 	plog->fine(msgPrfx);
 	return retCode;
@@ -2148,7 +2227,7 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
 	//"RINEX VERSION / TYPE"
 	version = v;
 	inFileVer = VTBD;
-	fileType = systemId = '?';
+	fileType = sysToPrintId = '?';
 	//obsTimeSys = string("GPS");
 	//Epoch time data
 	epochWeek = 0;
@@ -2183,8 +2262,9 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
 	labelDef.push_back(LABELdata(DCBS,		"SYS / DCBS APPLIED",	V302, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(PCVS,		"SYS / PCVS APPLIED",	V302, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(SCALE,		"SYS / SCALE FACTOR",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(PHSH,		"SYS / PHASE SHIFTS",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(GLSLT,		"GLONASS SLOT / FRQ #",	V302, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(PHSH,		"SYS / PHASE SHIFTS",	V302, OBSOBL + NAVNAP));
+	labelDef.push_back(LABELdata(GLSLT,		"GLONASS SLOT / FRQ #",	V302, OBSOBL + NAVNAP));
+    labelDef.push_back(LABELdata(GLPHS,     "GLONASS COD/PHS/BIS",  V302, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(LEAP,		"LEAP SECONDS",			VALL, OBSOPT + NAVOPT));
 	labelDef.push_back(LABELdata(SATS,		"# OF SATELLITES",		VALL, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(PRNOBS,	"PRN / # OF OBS",		VALL, OBSOPT + NAVNAP));
@@ -2199,19 +2279,7 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
 	labelDef.push_back(LABELdata(DONTMATCH,	"Incorrect label for this RINEX version", VALL, NAP));
 	labelDef.push_back(LABELdata(LASTONE,	"Last item",	VALL, NAP));
 	labelIdIdx = 0;
-	//*setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
-	//fill observable type names equivalence vector
-	obsNamEq.push_back(EQUIVobs("L1", "L1C"));
-	obsNamEq.push_back(EQUIVobs("L2", "L2P"));
-	obsNamEq.push_back(EQUIVobs("C1", "C1C"));
-	obsNamEq.push_back(EQUIVobs("P1", "C1P"));
-	obsNamEq.push_back(EQUIVobs("P2", "C2P"));
-	obsNamEq.push_back(EQUIVobs("D1", "D1C"));
-	obsNamEq.push_back(EQUIVobs("D2", "D2P"));
-	obsNamEq.push_back(EQUIVobs("S1", "S1C"));
-	obsNamEq.push_back(EQUIVobs("S2", "S2P"));
-	//by default, do not filter data
-	applyObsFilter = applyNavFilter = false;
+    for (numberV2ObsTypes = 0; !v3obsTypes[numberV2ObsTypes].empty(); numberV2ObsTypes++);
 }
 
 /**fmtRINEXv2name format a standard RINEX V2.10 file name from the given prefix, GPS week and TOW, and for the given type.
@@ -2329,34 +2397,60 @@ string RinexData::fmtRINEXv3name(string designator, int week, double tow, char f
 	switch(ftype) {
 	case 'O':
 	case 'o':
-		sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%02d%c_%cO.rnx",
-			(designator + "----").c_str(),
-			mrkNum,
-			rcvNum,
-			country.c_str(),
-			gpsEphe.tm_year + 1900,
-			gpsEphe.tm_yday + 1,
-			gpsEphe.tm_hour,
-			gpsEphe.tm_min,
-			period,
-			periodUnit,
-			frequency,
-			frequencyUnit,
-			constellation);
+	    if (designator.length() == 9) {
+            sprintf(buffer, "%9.9s_R_%04d%03d%02d%02d_%02d%c_%02d%c_%cO.rnx",
+                    designator.c_str(),
+                    gpsEphe.tm_year + 1900,
+                    gpsEphe.tm_yday + 1,
+                    gpsEphe.tm_hour,
+                    gpsEphe.tm_min,
+                    period,
+                    periodUnit,
+                    frequency,
+                    frequencyUnit,
+                    constellation);
+	    } else {
+            sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%02d%c_%cO.rnx",
+                    (designator + "----").c_str(),
+                    mrkNum,
+                    rcvNum,
+                    country.c_str(),
+                    gpsEphe.tm_year + 1900,
+                    gpsEphe.tm_yday + 1,
+                    gpsEphe.tm_hour,
+                    gpsEphe.tm_min,
+                    period,
+                    periodUnit,
+                    frequency,
+                    frequencyUnit,
+                    constellation);
+	    }
 		break;
 	case 'N':
-		sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%cN.rnx",
-			(designator + "----").c_str(),
-			mrkNum,
-			rcvNum,
-			country.c_str(),
-			gpsEphe.tm_year + 1900,
-			gpsEphe.tm_yday + 1,
-			gpsEphe.tm_hour,
-			gpsEphe.tm_min,
-			period,
-			periodUnit,
-			constellation);
+        if (designator.length() == 9) {
+            sprintf(buffer, "%9.9s_R_%04d%03d%02d%02d_%02d%c_%cN.rnx",
+                    designator.c_str(),
+                    gpsEphe.tm_year + 1900,
+                    gpsEphe.tm_yday + 1,
+                    gpsEphe.tm_hour,
+                    gpsEphe.tm_min,
+                    period,
+                    periodUnit,
+                    constellation);
+        } else {
+            sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%cN.rnx",
+                    (designator + "----").c_str(),
+                    mrkNum,
+                    rcvNum,
+                    country.c_str(),
+                    gpsEphe.tm_year + 1900,
+                    gpsEphe.tm_yday + 1,
+                    gpsEphe.tm_hour,
+                    gpsEphe.tm_min,
+                    period,
+                    periodUnit,
+                    constellation);
+        }
 		break;
 	default:
 		sprintf(buffer, "NOT_IMPLEMENTED_TYPE_%c.rnx", ftype);
@@ -2423,19 +2517,6 @@ string RinexData::valueLabel(RINEXlabel labelId, string toAppend) {
 			else return string(it->labelVal) + msgColon + toAppend;
 		}
 	return msgErrUnkLabel;
-}
-
-/**getSysIndex get the index in the systems vector of a given system identification
- * 
- * @param  sysId the system identification character (G, S, R, ....)
- * @return the index inside the vector system for it
- * @throws error string with the related message
- */
-size_t RinexData::getSysIndex(char sysId) {
-	size_t index, slen;
-	for (index = 0, slen = systems.size(); (index < slen) && (sysId != systems[index].system); index++);
-	if (index >= slen) throw msgSysUnk + string(1, sysId);
-	return index;
 }
 
 /**readV2ObsEpoch reads from the RINEX version 2.1 observation file data lines of an epoch.
@@ -2536,7 +2617,7 @@ int RinexData::readV2ObsEpoch(FILE* input) {
 				plog->warning(msgPrfx + msgUnexpObsEOF);
 				return 3;
 			}
-			nObs = systems[sysInEpoch[i]].obsType.size();
+			nObs = systems[sysInEpoch[i]].obsTypes.size();
 			//for each observable type in this satellite extracts its data from the record
 			//each record can have data for 5 observable types (or less). Continuation records are used when needed 
 			for (j=0; j<nObs; j+=5) {
@@ -2593,7 +2674,7 @@ int RinexData::readV3ObsEpoch(FILE* input) {
     const string msgWrongStart(" Wrong start of epoch. Line skip");
 	char lineBuffer[1300]; //enough big to allocate 3 + 2 + 19 x 4 measurements x 16 chars= 1221
 	int nObs, posObs;
-	int sysSat;
+	unsigned int sysIdx;
 	int prnSat;
 	double valObs;
 	int lliObs, strgObs;
@@ -2645,21 +2726,21 @@ int RinexData::readV3ObsEpoch(FILE* input) {
 				return 3;
 			}
 			try {
-				sysSat = getSysIndex(lineBuffer[0]);
+				sysIdx = getSysIndex(lineBuffer[0]);
 				if (sscanf(lineBuffer+1, "%2d", &prnSat) == 1) {
 					//for each observable type in the system of this satellite
-					nObs = systems[sysSat].obsType.size();
+					nObs = systems[sysIdx].obsTypes.size();
 					for (j = 0, posObs = 3; j < nObs; j++, posObs += 16) {
 						if (isBlank(lineBuffer + posObs, 14)) {
 							//empty observable: values are considered 0
-							epochObs.push_back(SatObsData(epochTimeTag, sysSat, prnSat, j, 0.0, 0, 0));
+							epochObs.push_back(SatObsData(epochTimeTag, sysIdx, prnSat, j, 0.0, 0, 0));
 						} else {
 							valObs = stod(string(lineBuffer+posObs, 14));
 							if (lineBuffer[posObs+14] == ' ') lliObs = 0;
 							else lliObs = stoi(string(lineBuffer+posObs+14, 1));
 							if (lineBuffer[posObs+15] == ' ') strgObs = 0;
 							else strgObs = stoi(string(lineBuffer+posObs+15, 1));
-							epochObs.push_back(SatObsData(epochTimeTag, sysSat, prnSat, j,  valObs, lliObs, strgObs));
+							epochObs.push_back(SatObsData(epochTimeTag, sysIdx, prnSat, j,  valObs, lliObs, strgObs));
 						}
 					}
 				} else {
@@ -2701,11 +2782,6 @@ int RinexData::readV3ObsEpoch(FILE* input) {
  *		- (8)	Error in event flag number
  */
 int RinexData::readObsEpochEvent(FILE* input, bool wrongDate) {
-    const string msgKinemEvent("Kinematic event: error in special records");
-    const string msgOccuEvent("New site occupation event: error in special records");
-    const string msgOccuEventNoMark("New site occupation event without MARKER NAME");
-    const string msgHdEvent("Header information event: error in special records");
-    const string msgExtEvent("External event without date");
 	RINEXlabel labelId;
 	bool mrknReceived = false;
 	int retValue = 2;
@@ -2772,7 +2848,7 @@ int RinexData::readObsEpochEvent(FILE* input, bool wrongDate) {
 void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 	///a macro to print a SYS / type record
 	#define PRINT_SYSREC(VECTOR, ITEMS_PER_LINE, PRNTPFX_1ST, PRNTPFX_CON, PRNT_ITEM, PRNT_EMPTYITEM) \
-		/*for each VECTOR, print ITEMS_PER_LINE items per line (a 1st line + continuation lines if needed)*/ \
+		/*in a VECTOR, print ITEMS_PER_LINE VECTOR elements per line (in a 1st line + continuation lines if needed)*/ \
  		if ((k = VECTOR.size()) != 0) { \
  			for (j = 0; j < k; j++) { \
 				if ((j % ITEMS_PER_LINE) == 0) {	\
@@ -2793,127 +2869,136 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 	char timeBuffer[80];
 	string aStr;
 	vector<string> aVectorStr;
+	vector<bool> aVectorBool;
 
 	RINEXlabel labelId = lbIter->labelID;
 	switch (labelId) {
-	case VERSION:	//"RINEX VERSION / TYPE"
-		if (version == V302)
-			fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 3.02, ' ', fileType, fileTypeSfx.c_str(), systemId, systemIdSfx.c_str());
-		else {
+    case VERSION:    //"RINEX VERSION / TYPE"
+		if (version == V210) {
 			//print VERSION params as per V210
-			if (fileType == 'N')
-				switch (systemId) {
-				case 'G': fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'N', "avigation GPS", ' ', " "); break;
-				case 'R': fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'G', "LONASS navigation", ' ', " "); break;
-				case 'S': fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'H', ":SBAS navigation", ' ', " "); break;
-				case 'E': fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'E', ":Galileo navigation", ' ', " "); break;
-				default:	//should not happen
-					fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType, fileTypeSfx.c_str(), systemId, systemIdSfx.c_str());
-					plog->warning(valueLabel(labelId) + msgSysUnk + string(1, systemId));
+			if (fileType == 'N') {
+				switch (sysToPrintId) {
+					case 'G':
+						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'N',
+								"avigation GPS", ' ', " ");
+						break;
+					case 'R':
+						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'G',
+								"LONASS navigation", ' ', " ");
+						break;
+					case 'S':
+						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'H',
+								":SBAS navigation", ' ', " ");
+						break;
+					default:    //should not happen
+						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType,
+								fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
+						plog->warning(valueLabel(labelId) + msgSysUnk + string(1, sysToPrintId));
 				}
-			else fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType, fileTypeSfx.c_str(), systemId, systemIdSfx.c_str());
+			} else
+				fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType,
+						fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
+		} else {
+				//by default V302
+				fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 3.02, ' ', fileType,
+						fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
 		}
-		break;
-	case RUNBY:		//"PGM / RUN BY / DATE"
-		if (date.length() == 0) {
-			//get local time and format it as needed
-			formatLocalTime(timeBuffer, sizeof timeBuffer, "%Y%m%d %H%M%S ");
-			fprintf(out, "%-20.20s%-20.20s%s%3s ", pgm.c_str(), runby.c_str(), timeBuffer, "LCL");
-		}
-		else {
-			fprintf(out, "%-20.20s%-20.20s%-20.20s", pgm.c_str(), runby.c_str(), date.c_str());
-		}
-		break;
-	case COMM:		//"COMMENT"
-	 	fprintf(out, "%-60.60s", (lbIter->comment).c_str());
-		break;
-	case MRKNAME:	//"MARKER NAME"
-	 	fprintf(out, "%-60.60s", markerName.c_str());
-		break;
-	case MRKNUMBER:	//"MARKER NUMBER"
- 		fprintf(out, "%-60.60s", markerNumber.c_str());
-		break;
-	case MRKTYPE:	//"MARKER TYPE"
-		fprintf(out, "%-20.20s%40c", markerType.c_str(), ' ');
-		break;
-	case AGENCY:	//"OBSERVER / AGENCY"
-	 	fprintf(out,"%-20.20s%-40.40s", observer.c_str(), agency.c_str());
-		break;
-	case RECEIVER:	//"REC # / TYPE / VERS
-	 	fprintf(out, "%-20.20s%-20.20s%-20.20s", rxNumber.c_str(), rxType.c_str(), rxVersion.c_str());
-		break;
-	case ANTTYPE:	//"ANT # / TYPE"
-	 	fprintf(out, "%-20.20s%-20.20s%20c", antNumber.c_str(), antType.c_str(), ' ');
-		break;
-	case APPXYZ:	//"APPROX POSITION XYZ"
-		fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", aproxX, aproxY, aproxZ, ' ');
-		break;
-	case ANTHEN:		//"ANTENNA: DELTA H/E/N"
-	 	fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antHigh, eccEast, eccNorth, ' ');
-		break;
-	case ANTXYZ:		//"ANTENNA: DELTA X/Y/Z"	V300
-	 	fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antX, antY, antX, ' ');
-		break;
-	case ANTPHC:		//"ANTENNA: PHASECENTE"		V300
-		fprintf(out, "%c %-3.3s%9.4lf%14.4lf%14.4lf%18c", antPhSys, antPhCode.c_str(), antPhNoX, antPhEoY, antPhUoZ, ' ');
-		break;
-	case ANTBS:			//"ANTENNA: B.SIGHT XYZ"	V300
-	 	fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antBoreX, antBoreY, antBoreX, ' ');
-		break;
-	case ANTZDAZI:		//"ANTENNA: ZERODIR AZI"	V300
-	 	fprintf(out, "%14.4lf%46c", antZdAzi, ' ');
-		break;
-	case ANTZDXYZ:		//"ANTENNA: ZERODIR XYZ"	V300
-	 	fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antZdX, antZdY, antZdX, ' ');
-		break;
-	case COFM :			//"CENTER OF MASS XYZ"		V300
-	 	fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", centerX, centerY, centerX, ' ');
-		break;
-	case WVLEN:			//"WAVELENGTH FACT L1/2"	V210
-		for (vector<WVLNfactor>::iterator it = wvlenFactor.begin(); it != wvlenFactor.end(); it++) {
-			fprintf(out, "%6d%6d%6d", it->wvlenFactorL1, it->wvlenFactorL2, it->nSats);
-			for(int m=0; m<7; m++)
-				if (m < it->nSats) fprintf(out, "%3c%3s", ' ', it->satNums[m].c_str());
-				else fprintf(out, "%6c", ' ');
-			fprintf(out, "%-20.20s\n", valueLabel(labelId).c_str());
-		}
-		return;
-	case TOBS:		//"# / TYPES OF OBSERV"		V210
- 		//it is assumed same observables and order for all systems
-		//print 9 observable types per line (a 1st line + continuation lines if needed) 
-		PRINT_SYSREC(v2ObsLst,
-					9,
-					fprintf(out, "%6u", k),
-					fprintf(out, "%6c", ' '),
-					fprintf(out, "%4c%2.2s", ' ', v2ObsLst[j].c_str()),
-					fprintf(out, "%6c", ' ')
-					)
+        break;
+    case RUNBY:        //"PGM / RUN BY / DATE"
+        if (date.length() == 0) {
+            //get local time and format it as needed
+            formatLocalTime(timeBuffer, sizeof timeBuffer, "%Y%m%d %H%M%S ");
+            fprintf(out, "%-20.20s%-20.20s%s%3s ", pgm.c_str(), runby.c_str(), timeBuffer, "LCL");
+        } else {
+            fprintf(out, "%-20.20s%-20.20s%-20.20s", pgm.c_str(), runby.c_str(), date.c_str());
+        }
+        break;
+    case COMM:        //"COMMENT"
+        fprintf(out, "%-60.60s", (lbIter->comment).c_str());
+        break;
+    case MRKNAME:    //"MARKER NAME"
+        fprintf(out, "%-60.60s", markerName.c_str());
+    	break;
+    case MRKNUMBER:    //"MARKER NUMBER"
+        fprintf(out, "%-60.60s", markerNumber.c_str());
+        break;
+    case MRKTYPE:    //"MARKER TYPE"
+        fprintf(out, "%-20.20s%40c", markerType.c_str(), ' ');
+        break;
+    case AGENCY:    //"OBSERVER / AGENCY"
+    	fprintf(out, "%-20.20s%-40.40s", observer.c_str(), agency.c_str());
+        break;
+    case RECEIVER:    //"REC # / TYPE / VERS
+    	fprintf(out, "%-20.20s%-20.20s%-20.20s", rxNumber.c_str(), rxType.c_str(), rxVersion.c_str());
+        break;
+    case ANTTYPE:    //"ANT # / TYPE"
+        fprintf(out, "%-20.20s%-20.20s%20c", antNumber.c_str(), antType.c_str(), ' ');
+        break;
+    case APPXYZ:    //"APPROX POSITION XYZ"
+        fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", aproxX, aproxY, aproxZ, ' ');
+    	break;
+    case ANTHEN:        //"ANTENNA: DELTA H/E/N"
+        fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antHigh, eccEast, eccNorth, ' ');
+        break;
+    case ANTXYZ:        //"ANTENNA: DELTA X/Y/Z"	V300
+        fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antX, antY, antX, ' ');
+        break;
+    case ANTPHC:        //"ANTENNA: PHASECENTE"		V300
+        fprintf(out, "%c %-3.3s%9.4lf%14.4lf%14.4lf%18c", antPhSys, antPhCode.c_str(), antPhNoX, antPhEoY, antPhUoZ, ' ');
+        break;
+    case ANTBS:            //"ANTENNA: B.SIGHT XYZ"	V300
+        fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antBoreX, antBoreY, antBoreX, ' ');
+        break;
+    case ANTZDAZI:        //"ANTENNA: ZERODIR AZI"	V300
+        fprintf(out, "%14.4lf%46c", antZdAzi, ' ');
+        break;
+    case ANTZDXYZ:        //"ANTENNA: ZERODIR XYZ"	V300
+        fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", antZdX, antZdY, antZdX, ' ');
+        break;
+    case COFM :            //"CENTER OF MASS XYZ"		V300
+        fprintf(out, "%14.4lf%14.4lf%14.4lf%18c", centerX, centerY, centerX, ' ');
+        break;
+    case WVLEN:            //"WAVELENGTH FACT L1/2"	V210
+        for (vector<WVLNfactor>::iterator it = wvlenFactor.begin(); it != wvlenFactor.end(); it++) {
+            fprintf(out, "%6d%6d%6d", it->wvlenFactorL1, it->wvlenFactorL2, it->nSats);
+            for (int m = 0; m < 7; m++)
+                if (m < it->nSats) fprintf(out, "%3c%3s", ' ', it->satNums[m].c_str());
+                else fprintf(out, "%6c", ' ');
+            fprintf(out, "%-20.20s\n", valueLabel(labelId).c_str());
+        }
+            return;
+    case TOBS:        //"# / TYPES OF OBSERV"		V210
+        if (systems.empty()) return;
+		//Note that only V210 obsTypes are taken into account
+        //copy into aVectorStr the V210 obsTypes identifiers to be printed
+        //note that all systems have the same observables to print
+        aVectorStr.clear();
+        for (i = 0; i < numberV2ObsTypes; i++)
+            if (systems[0].obsTypes[i].prt) aVectorStr.push_back(v2obsTypes[i]);
+        PRINT_SYSREC(aVectorStr,
+    	        9,
+        	    fprintf(out, "%6u", k),
+	            fprintf(out, "%6c", ' '),
+    	        fprintf(out, "%4c%2.2s", ' ', aVectorStr[j].c_str()),
+        	    fprintf(out, "%6c", ' ')
+		)
 		return;
 	case SYS :		//"SYS / # / OBS TYPES"		V300
 		//for each system, print 13 observable types per line (a 1st line + continuation lines if needed)
- 		for (i = 0; i < systems.size(); i++) {
-			if (applyObsFilter) {
-				if (systems[i].selSystem) {
-					aVectorStr.clear();
-					for (j = 0; j < systems[i].obsType.size(); j++)
-						if (systems[i].selObsType[j]) aVectorStr.push_back(systems[i].obsType[j]);
-					//VECTOR, ITEMS_PER_LINE, PRNTPFX_1ST, PRNTPFX_CON, PRNT_ITEM, PRNT_EMPTYITEM
-					PRINT_SYSREC(aVectorStr,
-						13,
-						fprintf(out, "%1c  %3u", systems[i].system, k),
-						fprintf(out, "%6c", ' '),
-						fprintf(out, " %3s", aVectorStr[j].c_str()),
-						fprintf(out, "%4c", ' ') )
-				}
-			} else {
-				//VECTOR, ITEMS_PER_LINE, PRNTPFX_1ST, PRNTPFX_CON, PRNT_ITEM, PRNT_EMPTYITEM
-				PRINT_SYSREC(systems[i].obsType,
-						13,
-						fprintf(out, "%1c  %3u", systems[i].system, k),
-						fprintf(out, "%6c", ' '),
-						fprintf(out, " %3s", systems[i].obsType[j].c_str()),
-						fprintf(out, "%4c", ' ') )
+        //to do it, copy into aVectorStr the obsTypes identifications to be printed
+        for (vector<GNSSsystem>::iterator itsys = systems.begin(); itsys != systems.end(); itsys++) {
+			aVectorStr.clear();
+			for (vector<OBSmeta>::iterator itobs = itsys->obsTypes.begin(); itobs != itsys->obsTypes.end(); itobs++) {
+			    itobs->prt = itobs->sel;
+			    if (itobs->prt) aVectorStr.push_back(itobs->id);
 			}
+		    PRINT_SYSREC(aVectorStr,
+				13,
+				fprintf(out, "%1c  %3u", itsys->system, k),
+				fprintf(out, "%6c", ' '),
+				fprintf(out, " %3s", aVectorStr[j].c_str()),
+				fprintf(out, "%4c", ' ')
+            )
  		}
 		return;
 	case SIGU :		//"SIGNAL STRENGTH UNIT"
@@ -2934,46 +3019,63 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 	 	fprintf(out, "%6d%54c", rcvClkOffs, ' ');
 		break;
 	case DCBS :		//"SYS / DCBS APPLIED"
-		for (vector<DCBSPCVSapp>::iterator it = dcbsApp.begin(); it != dcbsApp.end(); ++it) {
-			if (applyObsFilter && systems[it->sysIndex].selSystem) {
+		for (vector<DCBSPCVSapp>::iterator it = dcbsApp.begin(); it != dcbsApp.end(); ++it)
+			if (systems[it->sysIndex].selSystem) {
 				fprintf(out, "%c %-17.17s %-40.40s", systems[it->sysIndex].system, it->corrProg.c_str(), it->corrSource.c_str());
 				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
 			}
-		}
 		return;
 	case PCVS :		//"SYS / PCVS APPLIED"
-		for (vector<DCBSPCVSapp>::iterator it = pcvsApp.begin(); it != pcvsApp.end(); ++it) {
-			if (applyObsFilter && systems[it->sysIndex].selSystem) {
+		for (vector<DCBSPCVSapp>::iterator it = pcvsApp.begin(); it != pcvsApp.end(); ++it)
+			if (systems[it->sysIndex].selSystem) {
 				fprintf(out, "%c %-17.17s %-40.40s", systems[it->sysIndex].system, it->corrProg.c_str(), it->corrSource.c_str());
 				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
 			}
-		}
 		return;
 	case SCALE :	//"SYS / SCALE FACTOR"
 		//for each record, print 12 observable types per line (a 1st line + continuation lines if needed)
-		for (i = 0; i < obsScaleFact.size(); i++) {
-			if (applyObsFilter && systems[obsScaleFact[i].sysIndex].selSystem) {
-				PRINT_SYSREC(obsScaleFact[i].obsType,
-						12,
-						fprintf(out, "%c %4d  %2u",  systems[obsScaleFact[i].sysIndex].system,  obsScaleFact[i].factor, k),
-						fprintf(out, "%10c", ' '),
-						fprintf(out, " %-3.3s", obsScaleFact[i].obsType[j].c_str()),
-						fprintf(out, "%4c", ' ') )
-			}
- 		}
+        for (vector <OSCALEfact>::iterator it = obsScaleFact.begin(); it != obsScaleFact.end(); it++)
+            if (systems[it->sysIndex].selSystem) {
+                PRINT_SYSREC(it->obsType,
+                             12,
+                             fprintf(out, "%c %4d  %2u",  systems[it->sysIndex].system,  it->factor, k),
+                             fprintf(out, "%10c", ' '),
+                             fprintf(out, " %-3.3s", it->obsType[j].c_str()),
+                             fprintf(out, "%4c", ' ') )
+            }
 		return;
 	case PHSH :	//"SYS / PHASE SHIFTS"
 		//for each record, print 10 satellites per line (a 1st line + continuation lines if needed)
- 		for (i = 0; i < phshCorrection.size(); i++) {
-			if (applyObsFilter && systems[phshCorrection[i].sysIndex].selSystem) {
-				PRINT_SYSREC(phshCorrection[i].obsSats,
-						10,
-						fprintf(out, "%c %-3.3s %8.5lf  %2u", systems[phshCorrection[i].sysIndex].system, phshCorrection[i].obsCode.c_str(), phshCorrection[i].correction, k),
-						fprintf(out, "%18c", ' '),
-						fprintf(out, " %-3.3s", phshCorrection[i].obsSats[j].c_str()),
-						fprintf(out, "%4c", ' ') )
-			}
- 		}
+        for (vector <PHSHcorr>::iterator it = phshCorrection.begin(); it != phshCorrection.end(); it++)
+            if (systems[it->sysIndex].selSystem) {
+                if (it->obsCode.empty() && (it->correction == 0.0)) {
+                    fprintf(out, "%c %s%-20s\n", systems[it->sysIndex].system, string(58,' ').c_str(), valueLabel(labelId).c_str());
+                } else {
+                    PRINT_SYSREC(it->obsSats,
+                                 10,
+                                 fprintf(out, "%c %-3.3s %8.5lf  %2u", systems[it->sysIndex].system, it->obsCode.c_str(), it->correction, k),
+                                 fprintf(out, "%18c", ' '),
+                                 fprintf(out, " %-3.3s", it->obsSats[j].c_str()),
+                                 fprintf(out, "%4c", ' ')
+                    )
+                }
+            }
+        return;
+	case GLSLT:	//*GLONASS SLOT / FRQ #
+		PRINT_SYSREC(gloSltFrq,
+					 8,
+					 fprintf(out, "%3d ", (int) gloSltFrq.size()),
+					 fprintf(out, "%4c", ' '),
+					 fprintf(out, "R%-2.2d %2d ", gloSltFrq[j].slot, gloSltFrq[j].frqNum),
+					 fprintf(out, "%7c", ' ') )
+		return;
+	case GLPHS:	//"GLONASS COD/PHS/BIS"
+		PRINT_SYSREC(gloPhsBias,
+					 4,
+					 fprintf(out, ""),
+					 fprintf(out, ""),
+					 fprintf(out, " %-3.3s %8.3lf", gloPhsBias[j].obsCode.c_str(), gloPhsBias[j].obsCodePhaseBias),
+					 fprintf(out, "%13c", ' ') )
 		return;
 	case LEAP :		//"LEAP SECONDS"
 	 	fprintf(out, "%6d", leapSec);
@@ -2985,14 +3087,15 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 		break;
 	case PRNOBS :	//"PRN / # OF OBS"
 		//for each record, print 9 observable types per line (a 1st line + continuation lines if needed)
- 		for (i = 0; i < prnObsNum.size(); i++) {
-			PRINT_SYSREC(prnObsNum[i].obsNum,
-						9,
-						fprintf(out, "   %c%-2.2d", prnObsNum[i].sysPrn, prnObsNum[i].satPrn),
-						fprintf(out, "%6c", ' '),
-						fprintf(out, "%6d", prnObsNum[i].obsNum[j]),
-						fprintf(out, "%6c", ' ') )
- 		}
+        for (vector<PRNobsnum>::iterator it = prnObsNum.begin(); it != prnObsNum.end(); it++) {
+            PRINT_SYSREC(it->obsNum,
+                         9,
+                         fprintf(out, "   %c%-2.2d", it->sysPrn, it->satPrn),
+                         fprintf(out, "%6c", ' '),
+                         fprintf(out, "%6d", it->obsNum[j]),
+                         fprintf(out, "%6c", ' ')
+            )
+        }
 		return;
 	case IONC :		//"IONOSPHERIC CORR"		GNSS nav V302
 		for (vector<IONOcorr>::iterator it = ionoCorrection.begin(); it != ionoCorrection.end(); it++) {
@@ -3022,7 +3125,7 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 	#undef PRINT_SYSREC
 }
 
-/**printSatObsValues prints a line with observable values of the firts satellite in "epochObs".
+/**printSatObsValues prints a line or lines with observable values of the first satellite in epochObs.
  * If the number of observables to print is greather than the maximum number of observable values to be printed
  * in one line, one or several continuation lines would be necessary.
  * After printing observation data of this first satellite, they are removed from the storage.
@@ -3030,44 +3133,63 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
  * satellite PRN and observable type.
  *
  * @param out the already open print stream where RINEX epoch data will be printed
- * @param maxPerLine the maximum number of observable values to be printed in one line
+ * @param ver the RINEX version being printed
  * @return true if they remain observables belonging to the current epoch, false when no data remains to print.
  */
-bool RinexData::printSatObsValues(FILE* out, int maxPerLine) {
-    const string msgIgnObservable("Ignored observable in epoch, satellite, observable=");
+bool RinexData::printSatObsValues(FILE* out, RINEXversion ver) {
 	double valueToPrint;
+	int lli;
+    vector <SatObsData>::iterator itobs;
 	if (epochObs.empty()) return false;
 	//satellite data to print are those of the firts satellite in epochObs
 	int sysToPrint = epochObs[0].sysIndex;
 	int satToPrint = epochObs[0].satellite;
-	int obsToPrint = 0;
-	while (!epochObs.empty() && (epochObs[0].sysIndex == sysToPrint) && (epochObs[0].satellite == satToPrint)) {
-		if (epochObs[0].obsTypeIndex < obsToPrint) {
-			plog->warning(msgIgnObservable + to_string((long double) epochTimeTag)
-						+ msgComma + string(1,systems[sysToPrint].system) + to_string((long long) satToPrint)
-						+ msgComma + string(systems[sysToPrint].obsType[epochObs[0].obsTypeIndex]));
-			epochObs.erase(epochObs.begin());
-		} else if (epochObs[0].obsTypeIndex == obsToPrint) {
-			//there are data for this type of observable
-			valueToPrint = epochObs[0].obsValue;
-			//discard measurements out of range used in the RINEX format 14.3f
-			if ((valueToPrint > MAXOBSVAL) || (valueToPrint < MINOBSVAL)) valueToPrint = 0.0;
-			fprintf(out, "%14.3lf", valueToPrint);
-			if (epochObs[0].lossOfLock == 0) fprintf(out, " ");
-			else fprintf(out, "%1d", epochObs[0].lossOfLock);
-			if (epochObs[0].strength == 0) fprintf(out, " ");
-			else fprintf(out, "%1d", epochObs[0].strength);
-			epochObs.erase(epochObs.begin());	//remove printed data
-			obsToPrint++;
-		} else {
-			//there are no data for this type of observable
-			fprintf(out, "%14.3lf  ", (double) 0.0);
-			obsToPrint++;
-		}
-		if ((obsToPrint % maxPerLine) == 0) fprintf(out, "\n");
-	}
-	if ((obsToPrint % maxPerLine) != 0) fprintf(out, "\n");
-	return !epochObs.empty();
+    int maxPerLine;         //maximum observables to print per line
+    switch (ver) {
+        case V210: maxPerLine = 5; break;
+        default: maxPerLine = 999;  // 999 = practically unlimited
+    }
+    bool printObs;          //a flag computed to know if current obsType shall be printed or not
+    int nObsPrinted = 0;    //number of observables already printed in the current line
+    //for all observables of the given system, print values if printable and data available
+    for (int i = 0; i < systems[sysToPrint].obsTypes.size(); i++) {
+        //check is value for obsType in position i shall be printed or not
+        printObs = systems[sysToPrint].obsTypes[i].prt;
+        //Check if there are data to print and belongs to the system, satellite and obsType
+        itobs = epochObs.begin();
+        if (!epochObs.empty() && (itobs->sysIndex == sysToPrint) && (itobs->satellite == satToPrint) && (itobs->obsTypeIndex == i)) {
+            if (printObs) {
+                //normal case: there are data for this observable and shall be printed
+                valueToPrint = itobs->obsValue;
+                lli = itobs->lossOfLock;
+                //adjust measurements out of range in the RINEX format 14.3f
+                while (valueToPrint > MAXOBSVAL) {valueToPrint -= 1.E9; lli |= 1;}
+                while (valueToPrint < MINOBSVAL) {valueToPrint += 1.E9; lli |= 1;}
+                fprintf(out, "%14.3lf", valueToPrint);
+                if (lli == 0) fprintf(out, " ");
+                else fprintf(out, "%1d", lli);
+                if (itobs->strength == 0) fprintf(out, " ");
+                else fprintf(out, "%1d", itobs->strength);
+                nObsPrinted++;
+            } else {
+                plog->warning(msgIgnObservable
+                              + to_string((long double) epochTimeTag)
+                              + msgComma + string(1,systems[sysToPrint].system) + to_string((long long) satToPrint)
+                              + msgComma + string(systems[sysToPrint].obsTypes[itobs->obsTypeIndex].id));
+            }
+            epochObs.erase(epochObs.begin());    //remove printed data
+        } else if (printObs) {
+            //there are no data for this observable, but shall be printed
+            fprintf(out, "%14.3lf  ", (double) 0.0);
+            nObsPrinted++;
+        } else continue;    //this obsType has no data and is not printable
+        if ((nObsPrinted % maxPerLine) == 0) {
+            fprintf(out, "\n");
+            nObsPrinted = 0;
+        }
+    }
+    if ((nObsPrinted % maxPerLine) != 0) fprintf(out, "\n");
+    return !epochObs.empty();
 }
 
 /**readHdLineData reads a line from input RINEX file identifying the header line type, extracting data contained and storing them into the class members.
@@ -3095,32 +3217,6 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 				plog->warning(valueLabel(labelId, msgWrongFormat) + ERROR_STR); \
 				return labelId; \
 			}
-    const string msgNoLabel("No header label found in ");
-    const string msgWrongLabel(" cannot be used in this RINEX version");
-    const string msgProcessV210("File processed as per V2.1");
-    const string msgProcessV301("File processed as per 3.01");
-    const string msgProcessTBD("Cannot cope with this input file version. TBD assumed");
-    const string msgNumsat7(" Number of sats >=7");
-    const string msgTransit("Cannot cope with Transit data");
-    const string msgWrongFormat("Wrong data format in this line. ");
-    const string msgObsNoTrans(" Observable type cannot be traslated to V302");
-    const string msgMisCode("Mismatch in number of expected and existing code types");
-    const string msgNumTypesNo("Number of observation types not specified");
-    const string msgTypes(" types");
-    const string msgNoScale(" Scale factor not specified");
-    const string msgNoCorrection(" Correction not specified");
-    const string msgNoFreq(" no frequency number");
-    const string msgSlots(" slots");
-    const string msgNoSlot( " no slot number");
-    const string msgMisSlots("Mismatch in number of expected and existing slots");
-    const string msgWrongCont(" Continuation line not following a regular one");
-    const string msgInternalErr("Internal error: invalid label Id in readHdLineData");
-    const string msgFound("found");
-    const string msgDataRead(" data read");
-    const string msgErrIono(" errors in iono corrections:");
-    const string msgContExp("continuation expected, but received ");
-    const string msgFmtCont("wrong format in continuation line");
-    const string msgPhPerType(" phase shift, for types=");
 
     char lineBuffer[100];
 	RINEXlabel labelId;
@@ -3129,8 +3225,8 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 	string error, aStr;
 	int i, j, k, n, year, month, day, hour, minute;
 	double second, aDouble;
-	vector<string> otList;		//a working list of observable types
-	vector<string> obsTypes;	//a list of observable types in V300 format
+	vector<string> strList;		//a working list of strings (for observations, satellites, etc.)
+	vector<string> obsTypeIds;	//a list of observable types in V300 format
 	vector<int> anIntLst;		//a working list of integer
 	IONOcorr aIonoCorr;
 	TIMcorr aTimCorr;
@@ -3145,37 +3241,37 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		plog->warning (string(lineBuffer+61, 20) + msgWrongLabel);
 		return DONTMATCH;
 	case VERSION:	//"RINEX VERSION / TYPE"
-		//extract TYPE (O {N,G,H} M)
+		//extract TYPE. In V210: O {N,G,H}. In V302 N, O
 		fileType = lineBuffer[20];
 		fileTypeSfx = string(lineBuffer+21, 19);
-		//extract Satellite System: V210=G R S T M; V300=G R E S M
-		systemId = lineBuffer[40];
+		//extract Satellite System: V210= ' ' G R S T M; V300= G R E J C S M
+		sysToPrintId = lineBuffer[40];
 		systemIdSfx = string(lineBuffer+41, 19);
-		//extract and verify version
+		//extract and verify version, and set values as per V302
 		if(sscanf(lineBuffer, "%9lf", &aDouble) !=1) aDouble = 0;
 		if ((aDouble >= 2) && (aDouble < 3)) {
 			inFileVer = V210;
 			if (aDouble != 2.1) plog->warning(valueLabel(VERSION, msgProcessV210));
 			//store VERSION parameters as per V302
 			switch (fileType) {
-			case 'O':
-				if (systemId == ' ') {
+			case 'O':   //in V210 observation GPS
+				if (sysToPrintId == ' ') {
 					fileType = 'G';
 					fileTypeSfx = ":GPS";
 				}
 				break;
-			case 'N':
-				systemId = 'G';
+			case 'N':   //in V210 navigation GPS
+				sysToPrintId = 'G';
 				systemIdSfx = ":GPS";
 				break;
-			case 'G':
+			case 'G':   //in V210 navigarion GLONASS
 				fileType = 'N';
-				systemId = 'R';
+				sysToPrintId = 'R';
 				systemIdSfx = ":GLONASS";
 				break;
-			case 'H':
+			case 'H':   //in V210 navigation SBAS
 				fileType = 'N';
-				systemId = 'S';
+				sysToPrintId = 'S';
 				systemIdSfx = ":SBAS";
 				break;
 			default:
@@ -3190,7 +3286,12 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 			plog->warning(valueLabel(VERSION, msgProcessTBD));
 			inFileVer = VTBD;
 		}
-		plog->finer(valueLabel(VERSION, to_string((long double) aDouble)) + msgSlash + string(1,fileType) + msgSlash + string(1,systemId));
+		//set systems for navigation files because they do not have SYS / OBS record
+		if (fileType == 'N' && sysToPrintId != 'M') {
+		    strList.clear();
+		    systems.push_back(GNSSsystem(sysToPrintId, strList));
+		}
+		plog->finer(valueLabel(VERSION, to_string((long double) aDouble)) + msgSlash + string(1,fileType) + msgSlash + string(1,sysToPrintId));
 		break;
 	case RUNBY:		//"PGM / RUN BY / DATE"
 		pgm = string(lineBuffer, 20);
@@ -3283,28 +3384,30 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		break;
 	case TOBS:		//"# / TYPES OF OBSERV"		V210
 		if((sscanf(lineBuffer, "%6d", &k) == 0) || (k == 0)) LOG_ERR_AND_RETURN(string())
-		if(systemId == 'T') LOG_ERR_AND_RETURN(msgTransit);
+		if(sysToPrintId == 'T') LOG_ERR_AND_RETURN(msgTransit);
 		n = k;	//expected number of types. If n>9 there will be continuation line(s)
 		while (n > 0) {  //get V210 types and convert them to V300 notation
-			otList = getTokens(string(lineBuffer+6, 54), ' ');
-			for (vector<string>::iterator it = otList.begin(); it != otList.end(); ++it) {
-				aStr = obsV2toV3(*it);
-				if (aStr.empty()) plog->warning(valueLabel(TOBS, (*it) + msgObsNoTrans));
-				else obsTypes.push_back(aStr);
+		    strList.clear();
+			strList = getTokens(string(lineBuffer+6, 54), ' ');
+			for (vector<string>::iterator it = strList.begin(); it != strList.end(); ++it) {
+			    for (i=0; !v2obsTypes[i].empty() && (v2obsTypes[i].compare(*it) != 0); i++);
+				if (v2obsTypes[i].empty()) plog->warning(valueLabel(TOBS, (*it) + msgObsNoTrans));
+				else obsTypeIds.push_back(v3obsTypes[i]);
 			}
 			n -= 9;
 			if (n > 0) {	//read a continuation line and verify its label
 				READ_CONT_LINE(TOBS, 6)
 			}
 		}
-		if (k != obsTypes.size()) plog->warning(valueLabel(TOBS, msgMisCode));
+		if (k != obsTypeIds.size()) plog->warning(valueLabel(TOBS, msgMisCode));
 		//	store data on observable types
-		if (systemId == 'M') {	//when data come from multiple systems, add obsTypes for each one 
-			systems.push_back(GNSSsystem('G', obsTypes));
-			systems.push_back(GNSSsystem('R', obsTypes));
-			systems.push_back(GNSSsystem('S', obsTypes));
+		if (sysToPrintId == 'M') {
+		    //when data come from multiple systems, add obsTypeIds for each system in V210
+			systems.push_back(GNSSsystem('G', obsTypeIds));
+			systems.push_back(GNSSsystem('R', obsTypeIds));
+			systems.push_back(GNSSsystem('S', obsTypeIds));
 		}
-		else systems.push_back(GNSSsystem(systemId, obsTypes));
+		else systems.push_back(GNSSsystem(sysToPrintId, obsTypeIds));
 		plog->finer(valueLabel(TOBS, to_string((long long) k) + msgTypes));
 		break;
 	case SYS :		//"SYS / # / OBS TYPES"		V300
@@ -3312,16 +3415,17 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		if((sscanf(lineBuffer+3, "%6d", &k) == 0) || (k == 0)) LOG_ERR_AND_RETURN(msgNumTypesNo)
 		n = k;	//expected number of types. If n>13 there will be continuation line(s)
 		while (n > 0) {
-			otList = getTokens(string(lineBuffer+6, 54), ' ');	//extract type codes from the line
-			obsTypes.insert(obsTypes.end(), otList.begin(), otList.end());
+            strList.clear();
+			strList = getTokens(string(lineBuffer+6, 54), ' ');	//extract type codes from the line
+			obsTypeIds.insert(obsTypeIds.end(), strList.begin(), strList.end());
 			n -= 13;
 			if (n > 0) {	//read a continuation line and verify its label
 				READ_CONT_LINE(SYS, 6)
 			}
 		}
-		if (k != obsTypes.size()) plog->warning(valueLabel(SYS, msgMisCode));
+		if (k != obsTypeIds.size()) plog->warning(valueLabel(SYS, msgMisCode));
 		//store data on observable types
-		systems.push_back(GNSSsystem(lineBuffer[0], obsTypes));
+		systems.push_back(GNSSsystem(lineBuffer[0], obsTypeIds));
 		plog->finer(valueLabel(SYS, to_string((long long) k) + msgTypes));
 		break;
 	case SIGU :		//"SIGNAL STRENGTH UNIT"
@@ -3350,53 +3454,55 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		plog->finer(valueLabel(CLKOFFS, to_string((long long) rcvClkOffs)));
 		break;
 	case DCBS :		//"SYS / DCBS APPLIED"
-		if ((n = sysInx(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
+		if ((n = systemIndex(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
 		dcbsApp.push_back(DCBSPCVSapp(n, string(lineBuffer + 1, 17), string(lineBuffer + 20, 40)));
 		plog->finer(valueLabel(DCBS, string(" for sys ") + string(1, lineBuffer[0])));
 		break;
 	case PCVS :		//"SYS / PCVS APPLIED"
-		if ((n = sysInx(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
+		if ((n = systemIndex(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
 		pcvsApp.push_back(DCBSPCVSapp(n, string(lineBuffer + 1, 17), string(lineBuffer + 20, 40)));
 		plog->finer(valueLabel(DCBS, string(" for sys ") + string(1, lineBuffer[0])));
 		break;
 	case SCALE :	//"SYS / SCALE FACTOR"
-		if ((i = sysInx(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
+		if ((i = systemIndex(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
 		if(sscanf(lineBuffer+2, "%4d", &k) == 0) LOG_ERR_AND_RETURN(msgNoScale)
 		if(sscanf(lineBuffer+8, "%2d", &j) == 1) {
 			n = j;
 			//n is the expected number of types. If n>12 there will be continuation line(s)
 			while (n > 0) {
-				otList = getTokens(string(lineBuffer+10, 48), ' ');	//extract type codes from the line
-				obsTypes.insert(obsTypes.end(), otList.begin(), otList.end());
+                strList.clear();
+				strList = getTokens(string(lineBuffer+10, 48), ' ');	//extract type codes from the line
+				obsTypeIds.insert(obsTypeIds.end(), strList.begin(), strList.end());
 				n -= 12;
 				if (n > 0) {	//read a continuation line and verify its label
 					READ_CONT_LINE(SCALE, 10)
 				}
 			}
 		}
-		if (j != obsTypes.size()) plog->warning(valueLabel(SCALE, msgMisCode));
+		if (j != obsTypeIds.size()) plog->warning(valueLabel(SCALE, msgMisCode));
 		//store data on observable types
-		obsScaleFact.push_back(OSCALEfact(i, k, obsTypes));
+		obsScaleFact.push_back(OSCALEfact(i, k, obsTypeIds));
 		plog->finer(valueLabel(SCALE, to_string((long long) k) + " scale for " + to_string((long long) j) + msgTypes));
 		break;
 	case PHSH :		//"SYS / PHASE SHIFTS"
-		if ((i = sysInx(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
+		if ((i = systemIndex(lineBuffer[0])) < 0) LOG_ERR_AND_RETURN(msgSysUnk)
 		if(sscanf(lineBuffer+6, "%8lf", &aDouble) == 0) LOG_ERR_AND_RETURN(msgNoCorrection)
 		if(sscanf(lineBuffer+8, "%2d", &j) == 1) {
 			n = j;
 			//n is the expected number of types. If n>10 there will be continuation line(s)
 			while (n > 0) {
-				otList = getTokens(string(lineBuffer+18, 40), ' ');	//extract type codes from the line
-				obsTypes.insert(obsTypes.end(), otList.begin(), otList.end());
+                strList.clear();
+				strList = getTokens(string(lineBuffer+18, 40), ' ');	//extract type codes from the line
+				obsTypeIds.insert(obsTypeIds.end(), strList.begin(), strList.end());
 				n -= 10;
 				if (n > 0) {	//read a continuation line and verify its label
 					READ_CONT_LINE(PHSH, 18)
 				}
 			}
 		}
-		if (j != obsTypes.size()) plog->warning(valueLabel(PHSH, msgMisCode));
+		if (j != obsTypeIds.size()) plog->warning(valueLabel(PHSH, msgMisCode));
 		//store data on observable types
-		phshCorrection.push_back(PHSHcorr(i, string(lineBuffer+2, 3), aDouble, obsTypes));
+		phshCorrection.push_back(PHSHcorr(i, string(lineBuffer+2, 3), aDouble, obsTypeIds));
 		plog->finer(valueLabel(PHSH, msgPhPerType + to_string((long double) aDouble) + msgComma + to_string((long long) j)));
 		break;
 	case GLSLT :	//"GLONASS SLOT / FRQ #"
@@ -3406,7 +3512,7 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 			while (n > 0) {
 				if(sscanf(lineBuffer+k+1, "%2d", &j) == 0) plog->warning(valueLabel(GLSLT,msgNoSlot));
 				else if(sscanf(lineBuffer+k+4, "%2d", &i) == 0) plog->warning(valueLabel(GLSLT, msgNoFreq));
-				else gloSltFrq.push_back(GLSLTfrq(lineBuffer[k], j, i)); 
+				else gloSltFrq.push_back(GLSLTfrq(j, i));
 				n--;
 				k += 6;
 				if (k > 46) {	//read a continuation line and verify its label
@@ -3502,41 +3608,6 @@ bool RinexData::readRinexRecord(char* rinexRec, int recSize, FILE* input) {
 	return false;
 }
 
-/**obsV3toV2 provides the observable type name in RINEX V2 of a given system and observable
- * The observable type name returned is empty when:
- * - The system is not GPS, GLONASS or SBAS (the only ones RINEX V210 can cope with)
- * - The system is not flagged as "selected" when filtering printing
- * - The observable is not flagged as "selected" when filtering printing
- * 
- * @param si the index in the systems vector of the given system 
- * @param oi the index in obsType vector (in systems[si]) of the given observable type 
- * @return the observable type identification in V2, or an empty string if this type does not exits in V3
- */
-string RinexData::obsV3toV2(int si, int oi) {
-	if (applyObsFilter && !systems[si].selSystem) return string();
-	if (applyObsFilter && !systems[si].selObsType[oi]) return string();
-	char sys = systems[si].system;
-	string obsTypeName = systems[si].obsType[oi];
-	//if system is not GPS, SBAS, or GLONASS, V2 cannot cope with it
-	if(strchr("GRS", sys) != NULL) {
-		for (vector<EQUIVobs>::iterator it = obsNamEq.begin(); it != obsNamEq.end(); ++it)
-			if(it->v3name.compare(obsTypeName) == 0) return it->v2name;
-	}
-	return string();
-}
-
-/**v2ObsInx provides the observable type index in the v2ObsLst list of RINEX V2 observables for a given observable type
- * 
- * @param obsId the observable type name 
- * @return the the index of the given observable in the list of RINEX V2 observables, -2 if the type name is empty, or -1 if it is not in the list
- */
-int RinexData::v2ObsInx(const string &obsId) {
-	if (obsId.empty()) return -2;
-	for (int i = 0; i < (int) v2ObsLst.size(); i++)
-		if (obsId.compare(v2ObsLst[i]) == 0) return i;
-	return -1;
-}
-
 /**isSatSelected checks if in the given system the given satellite in the list of selected ones
  * 
  * @param sysIx the given system index in the systems vector 
@@ -3544,35 +3615,103 @@ int RinexData::v2ObsInx(const string &obsId) {
  * @return true when the given satellite is in the list or the list is empty, false otherwise
  */
 bool RinexData::isSatSelected(int sysIx, int sat) {
+    if (sysIx < 0) return false;
 	if (systems[sysIx].selSat.empty()) return true;
 	for (vector<int>::iterator its = systems[sysIx].selSat.begin(); its != systems[sysIx].selSat.end(); its++)
 		if ((*its) == sat) return true;
 	return false;
 }
 
-/**sysInx provides the system index in the systems vector for a given system code
+/**systemIndex provides the system index in the systems vector for a given system code
  * 
  * @param sysCode the one character system code (G, R, S, E, ...)
  * @return the index of the given system code in the systems vector, or -1 if it is not in the vector
  */
-int RinexData::sysInx(char sysCode) {
+int RinexData::systemIndex(char sysId) {
 	for (int i = 0; i < (int) systems.size(); i++)
-		if (systems[i].system == sysCode) return i;
+		if (systems[i].system == sysId) return i;
 	return -1;
+}
+
+/**getSysIndex get the index in the systems vector of a given system identification
+ *
+ * @param  sysId the system identification character (G, S, R, ....)
+ * @return the index inside the vector system for it
+ * @throws error string with the related message
+ */
+unsigned int RinexData::getSysIndex(char sysId) {
+    int inx;
+    if ((inx = systemIndex(sysId)) >= 0) return (unsigned int) inx;
+    throw msgSysUnk + string(1, sysId);
 }
 
 /**getSysDes provides the system description for a given system code
  * 
  * @param s the one character system code (G, R, S, E, ...)
- * @return the descriptive prefix of the given system code in the systems vector
+ * @return the descriptive sufix of the given system code
  */
 string RinexData::getSysDes(char s) {
 	switch (s) {
+	case ' ':
 	case 'G': return string(": GPS");
 	case 'E': return string(": Galileo");
+	case 'C': return string(": Beidou");
 	case 'S': return string(": SBAS payload");
 	case 'R': return string(": GLONASS");
+	case 'J': return string(": QZSS");
 	case 'M': return string(": Mixed");
 	}
 	return string();
+}
+
+/**setSuffixes set values in descriptive suffixes of VERSION record
+ * values are set according version and file type
+ */
+void RinexData::setSuffixes() {
+    const string desOBS = "BSERVATION DATA";
+    if (version == V210) {
+        switch (fileType) {
+            case 'O':   //observation
+                fileTypeSfx = desOBS;
+                systemIdSfx = getSysDes(sysToPrintId);
+                break;
+            case 'N':
+                fileTypeSfx = "AVIGATION GPS DATA";
+                systemIdSfx = getSysDes('G');
+                break;
+            case 'G':
+                fileTypeSfx = "LONASS NAVIGATION";
+                systemIdSfx = getSysDes('R');
+                break;
+            case 'H':
+                fileTypeSfx = " SBAS NAVIGATION";
+                systemIdSfx = getSysDes('S');
+                break;
+            default:
+                break;
+        }
+    } else { //it is assumed V310
+        switch (fileType) {
+            case 'O':   //observation
+                fileTypeSfx = desOBS;
+                break;
+            case 'N':
+                fileTypeSfx = "AVIGATION DATA";
+                break;
+        }
+        systemIdSfx = getSysDes(sysToPrintId);
+    }
+}
+
+void RinexData::setSysToPrintId(string msg) {
+    int n = 0;
+    //count the number of systems to print and set value for sysToPrintId
+    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++)
+        if (it->selSystem) {
+            sysToPrintId = it->system;
+            n++;
+        }
+    //if more than one selected, set Mixed value
+    if (n == 0) throw msg + "UNSELECTED";
+    else if (n > 1) sysToPrintId = 'M';
 }

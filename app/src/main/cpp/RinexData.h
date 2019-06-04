@@ -25,7 +25,9 @@
  *<p>				|-#	For filtering observation and navigation epoch data according to selected systems/satellites/observables (useful before printing or getting data).
  *<p>				|Removed functionalities not related to RINEX file processing.
  *<p>V2.1	|2/2018	|Reviewed to run on Linux / Android.
- * <p>              |Added msg variables
+ *<p>               |Added msg variables
+ *<p>V2.2   |6/2019 |Simplified the processing of signal names for V2 RINEX
+ *                  |Simplified the processing of systems and signals using new data structure for systems
  */
 #ifndef RINEXDATA_H
 #define RINEXDATA_H
@@ -54,6 +56,9 @@ const unsigned int NAVNAP = NAP<<2;		//Not applicable for the navigation file ty
 const unsigned int NAVOBL = OBL<<2;		//Obligatory
 const unsigned int NAVOPT = OPT<<2;		//Optional
 const unsigned int NAVMSK = MSK<<2;	//The mask to apply to filter these bits
+//observation values in RINEX V3 having equivalent in RINEX V2. Shall have the same size!
+const string v3obsTypes[] = {"C1C", "L1C", "D1C", "S1C", "C1P", "C2P", "L2P", "D2P", "S2P", string()};
+const string v2obsTypes[] = {"C1" , "L1" , "D1" , "S1" , "P1" , "P2" , "L2" , "D2" , "S2" , string()};
 //Messages common to several methods
 const string msgSpace(" ");
 const string msgComma(",");
@@ -74,6 +79,45 @@ const string msgVerTBD("Undefined version to print");
 const string msgWrongDate("Wrong date-time");
 const string msgWrongFlag(" Wrong flag");
 const string msgWrongPRN("Wrong PRN");
+const string msgNoLabel("No header label found in ");
+const string msgWrongLabel(" cannot be used in this RINEX version");
+const string msgProcessV210("File processed as per V2.1");
+const string msgProcessV301("File processed as per 3.01");
+const string msgProcessTBD("Cannot cope with this input file version. TBD assumed");
+const string msgNumsat7(" Number of sats >=7");
+const string msgTransit("Cannot cope with Transit data");
+const string msgWrongFormat("Wrong data format in this line. ");
+const string msgObsNoTrans(" Observable type cannot be traslated to V302");
+const string msgMisCode("Mismatch in number of expected and existing code types");
+const string msgNumTypesNo("Number of observation types not specified");
+const string msgTypes(" types");
+const string msgNoScale(" Scale factor not specified");
+const string msgNoCorrection(" Correction not specified");
+const string msgNoFreq(" no frequency number");
+const string msgSlots(" slots");
+const string msgNoSlot( " no slot number");
+const string msgMisSlots("Mismatch in number of expected and existing slots");
+const string msgWrongCont(" Continuation line not following a regular one");
+const string msgInternalErr("Internal error: invalid label Id in readHdLineData");
+const string msgFound("found");
+const string msgDataRead(" data read");
+const string msgErrIono(" errors in iono corrections:");
+const string msgContExp("continuation expected, but received ");
+const string msgFmtCont("wrong format in continuation line");
+const string msgPhPerType(" phase shift correction, for signal and sats ");
+const string msgErrBO("Error Broad.Orb.[");
+const string msgWrongVersion("Wrong version / file type");
+const string msgWrongSysPRN("Wrong system or PRN");
+const string msgWrongInFile("Wrong input file version");
+const string msgNewEp("New epoch.");
+const string msgStored("Stored.");
+const string msgKinemEvent("Kinematic event: error in special records");
+const string msgOccuEvent("New site occupation event: error in special records");
+const string msgOccuEventNoMark("New site occupation event without MARKER NAME");
+const string msgHdEvent("Header information event: error in special records");
+const string msgExtEvent("External event without date");
+const string msgIgnObservable("Ignored observable in epoch, satellite, observable=");
+
 const string errorLabelMis("Internal error. Wrong argument types in RINEX label identifier=");
 //@endcond
 
@@ -176,6 +220,7 @@ public:
 		SCALE,		///< "SYS / SCALE FACTOR" (in version V302)
 		PHSH,		///< "SYS / PHASE SHIFTS" (in version V302)
 		GLSLT,		///< "GLONASS SLOT / FRQ #" (in version V302)
+        GLPHS,      ///< "GLONASS COD/PHS/BIS" (in version V302)
 		LEAP,		///< "LEAP SECONDS" (All versions)
 		SATS,		///< "# OF SATELLITES" (All versions)
 		PRNOBS,		///< "PRN / # OF OBS" (All versions)
@@ -205,6 +250,7 @@ public:
 	bool setHdLnData(RINEXlabel rl, char a, int b, const vector<int> &c);
 	bool setHdLnData(RINEXlabel rl, char a, int b, const vector<string> &c);
 	bool setHdLnData(RINEXlabel rl, char a, const string &b, double c, double d, double e);
+    bool setHdLnData(RINEXlabel rl, char a, const string &b, double c, const vector<string> &d);
 	bool setHdLnData(RINEXlabel rl, char a, const string &b, const string &c);
 	bool setHdLnData(RINEXlabel rl, char a, const vector<string> &b);
 	bool setHdLnData(RINEXlabel rl, double a, double b=0.0, double c=0.0);
@@ -212,24 +258,26 @@ public:
 	bool setHdLnData(RINEXlabel rl, int a, int b, const vector<string> &c);
 	bool setHdLnData(RINEXlabel rl, const string &a, const string &b=string(), const string &c=string());
 	bool setHdLnData(RINEXlabel rl, const string &a, const vector<double> &b);
-	bool setHdLnData(RINEXlabel rl, const string &a, double b, double c, int d, int e, const string &f, int g);
+	bool setHdLnData(RINEXlabel rl, const string &a, double b, double c=0.0, int d=0, int e=0, const string &f=string(), int g=0);
 	//methods to obtain line header records data stored in the RinexData object
-	bool getHdLnData(RINEXlabel rl, int &a, double &b, string &c);
 	bool getHdLnData(RINEXlabel rl, RINEXlabel &a, string &b, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, int &b, vector <int> &c, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, int &b, vector <string> &c, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, string &b, double &c, double &d, double &e);
+	bool getHdLnData(RINEXlabel rl, char &a, string &b, double &c, vector <string> &d, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, string &b, string &c, unsigned int index = 0);
-	bool getHdLnData(RINEXlabel rl, char &a,  vector <string> &b, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, char &a,  vector <string> &b, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, double &a);
 	bool getHdLnData(RINEXlabel rl, double &a, char &b, char &c);
 	bool getHdLnData(RINEXlabel rl, double &a, double &b, double &c);
 	bool getHdLnData(RINEXlabel rl, int &a);
+    bool getHdLnData(RINEXlabel rl, int &a, double &b, string &c);
 	bool getHdLnData(RINEXlabel rl, int &a, int &b, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, string &a);
 	bool getHdLnData(RINEXlabel rl, string &a, string &b);
 	bool getHdLnData(RINEXlabel rl, string &a, string &b, string &c);
 	bool getHdLnData(RINEXlabel rl, string &a, vector <double> &b, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, string &a, double &b, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, string &a, double &b, double &c, int &d, int &e, string &f, int &g, unsigned int index = 0);
 	//methods to process header records data
 	RINEXlabel lblTOid(string label);
@@ -237,15 +285,13 @@ public:
 	RINEXlabel get1stLabelId();
 	RINEXlabel getNextLabelId();
 	void clearHeaderData();
-	string obsV2toV3(const string&);
 	//methods to process and collect epoch data
 	double setEpochTime(int weeks, double secs, double bias=0.0, int eFlag=0);
 	bool saveObsData(char sys, int sat, string obsType, double value, int lol, int strg, double tTag);
 	double getEpochTime(int &weeks, double &secs, double &bias, int &eFlag);
-	bool getObsData(char &sys, int &sat, string &obsType, double &value, int &lol, int &strg, double &tTag, unsigned int index = 0);
-//	bool setFilter(vector<string>& selSat, vector<string>& selObs);
+	bool getObsData(char &sys, int &sat, string &obsType, double &value, int &lol, int &strg, unsigned int index = 0);
 	bool setFilter(vector<string> selSat, vector<string> selObs);
-	bool filterObsData();
+	bool filterObsData(bool removeNotPrt = false);
 	void clearObsData();
 	bool saveNavData(char sys, int sat, double bo[8][4], double tTag);
 	bool getNavData(char& sys, int &sat, double (&bo)[8][4], double &tTag, unsigned int index = 0);
@@ -297,9 +343,9 @@ private:
 	//"RINEX VERSION / TYPE"
 	RINEXversion inFileVer;	//The RINEX version of the input file (when applicable)
 	RINEXversion version;	//The RINEX version of the output file
-	char fileType;			//V2210:O, N(GPS nav), G(GLONASS nav), H(Geo GPS nav), ...; V302:O, N, M
+	char fileType;			//V210:O, N(GPS nav), G(GLONASS nav), H(Geo nav), ...; V302:O, N, M
 	string fileTypeSfx;		//a suffix to better describe the file type
-	char systemId;			//System: V210=G(GPS), R(GLO), S(SBAS), T, M(Meteo); V302=G, R, E (Galileo), S, M
+	char sysToPrintId;			//System to print identifier: V210=G(GPS), R(GLO), S(SBAS), T, M(multiple); V302=G, R, E (Galileo), J, C, S, M
 	string systemIdSfx;		//a suffix to better describe the system
 	//"PGM / RUN BY / DATE"
 	string pgm;				//Program used to create current file
@@ -379,21 +425,38 @@ private:
 	};
 	vector <WVLNfactor> wvlenFactor;
 	//"# / TYPES OF OBSERV"		V210
-	vector <string> v2ObsLst;
 	//"SYS / # / OBS TYPES"		V302
+    struct OBSmeta {    //Defines metadata to manage observables
+        string id;  //identifier of each obsType type: C1C, L1C, D1C, S1C... (see RINEX V302 document: 5.1 Observation codes)
+        bool sel;   //if true, the obsType is selected, that is, their data will be taken into account
+        bool prt;   //if true, the obsType will be printed (it is selected and its printable in the current version)
+        //constructor
+        OBSmeta (string identifier, bool selected, bool printable) {
+            id = identifier;
+            sel = selected;
+            prt = printable;
+        }
+    };
 	struct GNSSsystem {	//Defines data for each GNSS system that can provide data to the RINEX file. Used for all versions
 		char system;	//system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo). See RINEX V302 document: 3.5 Satellite numbers
 		bool selSystem;	//a flag stating if the system is selected (will pass filtering or not)
-		vector <string> obsType;	//identifier of each obsType type: C1C, L1C, D1C, S1C... (see RINEX V302 document: 5.1 Observation codes)
-		vector <bool> selObsType;	//a flag stating if the corresponding obsType is selected (will pass filtering or not)
-		vector <int> selSat;
+        vector <OBSmeta> obsTypes;
+        vector <int> selSat;       //the list of selected satelites to be printed. If empty all of them will be printed
 		//constructor
-		GNSSsystem (char sys, const vector<string> &obsT) {
+		//GNSSsystem (char sys, const vector<string> &obsT) {
+        GNSSsystem (char sys, vector<string> obsT) {
 			system = sys;
 			selSystem = true;
-			obsType.insert(obsType.end(), obsT.begin(), obsT.end());
-			selObsType.insert(selObsType.begin(), obsType.size(), true);
-		};
+			//insert all obsType having equivalence in RINEX V2
+            for (int i = 0;  !v3obsTypes[i].empty() ; i++) obsTypes.push_back(OBSmeta(v3obsTypes[i], false, false));
+            //now update or insert obsTypes passed in argument
+            vector <OBSmeta> ::iterator itobs;
+            for (vector<string>::iterator iti = obsT.begin(); iti != obsT.end(); iti++) {
+                for (itobs = obsTypes.begin(); (itobs != obsTypes.end()) && ((*iti).compare(itobs->id) != 0); itobs++);
+                if (itobs != obsTypes.end()) itobs->sel = true;
+                else obsTypes.push_back(OBSmeta(*iti, true, false));
+            }
+        };
 	};
 	vector <GNSSsystem> systems;
 	//"* SIGNAL STRENGTH UNIT"	V302
@@ -432,7 +495,7 @@ private:
 		int sysIndex;	//the system index in vector systems
 		int factor;		//a factor to divide stored observables with before use (1,10,100,1000)
 		vector <string> obsType;	//the list of observable types involved. If vector is empty, all observable types are involved
-
+        //constructor
 		OSCALEfact (int oi, int f, const vector<string> &ot) {
 			sysIndex = oi;
 			factor = f;
@@ -457,17 +520,26 @@ private:
 	vector <PHSHcorr> phshCorrection;
 	//* GLONASS SLOT / FRQ #
 	struct GLSLTfrq {	//defines Glonass slot and frequency numbers
-		int sysIndex;	//the system index in vector systems
 		int slot;		//slot
 		int frqNum;		//Frequency numbers (-7...+6)
 		//constructor
-		GLSLTfrq (int oi, int sl, int fr) {
-			sysIndex = oi;
+		GLSLTfrq (int sl, int fr) {
 			slot = sl;
 			frqNum = fr;
 		};
 	};
 	vector <GLSLTfrq> gloSltFrq;
+	//* GLONASS COD/PHS/BIS
+    struct GLPHSbias {
+        string obsCode;   //the observation code
+        double obsCodePhaseBias;    //the code phase bias correction
+        //constructor
+        GLPHSbias (string oc, double phb) {
+            obsCode = oc;
+            obsCodePhaseBias = phb;
+        }
+    };
+    vector <GLPHSbias> gloPhsBias;
 	//"* LEAP SECONDS"			VALL
 	int leapSec;
 	int deltaLSF;		//V302 only
@@ -536,14 +608,14 @@ private:
 	int nSatsEpoch;		//Number of satellites or special records in current epoch
 	double epochTimeTag;	//A tag to identify the measurements of a given epoch. Could be the estimated time of current epoch before fix
 	struct SatObsData {	//defines data storage for a satellite observable (pseudorrange, phase, ...) in an epoch.
-		int sysIndex;		//the system this observable belongs: its index in systems vector (see above)
+		unsigned int sysIndex;		//the system this observable belongs: its index in systems vector (see above)
 		int satellite;		//the satellite this observable belongs: PRN of satellite
-		int obsTypeIndex;	//the observable type: its index in obsType vector (inside the GNSSsystem object referred by sysIndex)
+		unsigned int obsTypeIndex;	//the observable type: its index in obsType vector (inside the GNSSsystem object referred by sysIndex)
  		double obsValue;	//the value of this observable
 		int lossOfLock;		//if loss of lock happened when observable was taken
 		int strength;		//the signal strength when observable was taken
 		//constructor
-		SatObsData (double obsTag, int sysIdx, int sat, int obsIdx, double obsVal, int lol, int str) {
+		SatObsData (double obsTag, unsigned int sysIdx, int sat, unsigned int obsIdx, double obsVal, int lol, int str) {
 			sysIndex = sysIdx;
 			satellite = sat;
 			obsTypeIndex = obsIdx;
@@ -553,14 +625,14 @@ private:
 		};
 		//define operator for comparisons and sorting
 		bool operator < (const SatObsData& param) const {
-			if (sysIndex > param.sysIndex) return false;
 			if (sysIndex < param.sysIndex) return true;
+			if (sysIndex > param.sysIndex) return false;
 			//same system
-			if (satellite > param.satellite) return false;
 			if (satellite < param.satellite) return true;
+			if (satellite > param.satellite) return false;
 			//same system and satellite
-			if (obsTypeIndex > param.obsTypeIndex) return false;
-			return true;
+			if (obsTypeIndex <= param.obsTypeIndex) return true;
+			return false;
 		};
 	};
 	vector <SatObsData> epochObs;	//A place to store observable data (pseudorange, phase, ...) for one epoch
@@ -581,37 +653,23 @@ private:
 		};
 		//define operator for comparisons and sorting
 		bool operator < (const SatNavData &param) const {
-			if(navTimeTag > param.navTimeTag) return false;
 			if(navTimeTag < param.navTimeTag) return true;
+			if(navTimeTag > param.navTimeTag) return false;
 			//same time tag
-			if (systemId > param.systemId) return false;
 			if (systemId < param.systemId) return true;
+			if (systemId > param.systemId) return false;
 			//same time tag and system
-			if (satellite > param.satellite) return false;
-			return true;
+			if (satellite < param.satellite) return true;
+			return false;
 		};
 	};
 	vector <SatNavData> epochNav;		//A place to store navigation data for one epoch
 	//A state variable used to store reference to the label of the last record which data has been modified
 	vector<LABELdata>::iterator lastRecordSet;
-	//A equivalence table between observable type names in RINEX V2 and V3 
-	struct EQUIVobs {
-		string v2name;
-		string v3name;
-		//constructor
-		EQUIVobs (const string &v2, const string &v3) {
-			v2name = v2;
-			v3name = v3;
-		}
-	};
-	vector <EQUIVobs> obsNamEq;
+	unsigned int numberV2ObsTypes;
 	//Logger
 	Logger* plog;		//the place to send logging messages
 	bool dynamicLog;	//true when created dynamically here, false when provided externally
-	//Filtering data
-	bool applyObsFilter;	//when true, parameters has been stated to filter observation data 
-	bool applyNavFilter;	//when true, parameters has been stated to filter navigation data 
-	vector<string> selectedSats;	//list of selected systems-satellites that would pass navigation data filter
 
 	//private methods
 	void setDefValues(RINEXversion v, Logger* p);
@@ -621,18 +679,18 @@ private:
 	bool getLabelFlag(RINEXlabel);
 	RINEXlabel checkLabel(char *);
 	string valueLabel(RINEXlabel label, string toAppend = string());
-	size_t getSysIndex(char sysId);
 	int readV2ObsEpoch(FILE* input);
 	int readV3ObsEpoch(FILE* input);
 	int readObsEpochEvent(FILE* input, bool wrongDate);
 	void printHdLineData (FILE* out, vector<LABELdata>::iterator lbIter);
-	bool printSatObsValues(FILE* out, int maxPerLine);
+	bool printSatObsValues(FILE* out, RINEXversion ver);
 	RINEXlabel readHdLineData(FILE* input);
 	bool readRinexRecord(char* rinexRec, int recSize, FILE* input);
-	string obsV3toV2(int, int);
-	int v2ObsInx(const string&);
 	bool isSatSelected(int sysIx, int sat);
-	int sysInx(char sysCode);
+    unsigned int getSysIndex(char sysId);
+	int systemIndex(char sysCode);
 	string getSysDes(char s);
+	void setSuffixes();
+	void setSysToPrintId(string msg);
 };
 #endif
