@@ -62,11 +62,12 @@ void GNSSdataFromGRD::closeInputGRD() {
 }
 
 /**collectHeaderData extracts data from the current ORD or NRD file to the RINEX file header.
- * Also other parameters useful for processing observation or navigation data can be collected here.
+ * Also other parameters useful for processing observation or navigation data are collected here.
  * <p>To collect this data the whole file is parsed from begin to end. Message types not containing
  * data above mentioned are skipped.
  * <p>Most data are collected only from the first file. Data from MT_SATOBS related to system and signals,
  * and from MT_SATNAV_GLONASS_L1_CA related to slot number and carrier frequency are collected from all files.
+ * <p>Data collected are saved in the RinexData object passed.
  *
  * @param rinex the RinexData object where header data will be saved
  * @param inFileNum the number of the current input raw data file from a total of inFileTotal. First value = 0
@@ -83,6 +84,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
     string observer, agency;
     string rcvNum, rcvType, rcvVer;
     vector <string> aVectorStr;
+    string logmsg;
     //message parameters in ORD or NRD files
     int msgType;
     char constId;
@@ -122,7 +124,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                 if (fgets(msgBuffer, sizeof msgBuffer, grdFile) == msgBuffer) {
                     trimBuffer(msgBuffer, "\r \t\f\v\n");
                     if (inFileNum == 0) processHdData(rinex, msgType, string(msgBuffer));
-                } else plog->warning(LOG_MSG_ERRO + getMsgDescription(msgType) + " params" + LOG_MSG_COUNT);
+                } else plog->warning(getMsgDescription(msgType) + LOG_MSG_PARERR);
                 continue;   //fgets already reads the EOL (skipToEOM not neccesary)!
             case MT_SATOBS:
                 if (fscanf(grdFile, "%c%d;%c%c;%d;%*lld;%*lf;%d;%*lf;%*lf;%lf", &constId, &satNum, sgnl, sgnl+1, &trackState, &phaseState, &carrierFrequencyMHz) == 7) {
@@ -131,10 +133,10 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                     if (isKnownMeasur(constId, satNum, *sgnl, *(sgnl+1))) {
                         if (!isPsAmbiguous(constId, sgnl, trackState, dvoid, dvoid2, llvoid) || !isCarrierPhInvalid(constId, sgnl, phaseState)) {
                             if (addSignal(constId, string(sgnl)))
-                                plog->fine(getMsgDescription(msgType) + ": added " + string(1, constId) + MSG_SPACE + string(sgnl) + LOG_MSG_COUNT);
+                                plog->fine(getMsgDescription(msgType) + " added " + string(1, constId) + MSG_SPACE + string(sgnl));
                         }
                     }
-                } else plog->warning(LOG_MSG_ERRO + getMsgDescription(msgType) + " params" + LOG_MSG_COUNT);
+                } else plog->warning(getMsgDescription(msgType) + LOG_MSG_PARERR);
                 break;
             case MT_EPOCH:
                 collectAndSetEpochTime(rinex, dvoid, ivoid, msgEpoch);
@@ -148,10 +150,11 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                 }
                 break;
             case MT_SATNAV_GLONASS_L1_CA:
-                if (!readGLOEpochNav(constId, satNum, strNum, frame, gloStrWord)) return false;
+                if (!readGLOL1CAEpochNav(constId, satNum, strNum, frame, gloStrWord)) break;
+                rinex.setHdLnData(RinexData::SYS, constId, aVectorStr);
                 //get the satellite index from its number
                 if ((satIdx = gloSatIdx(satNum)) >= GLO_MAXSATELLITES) {
-                    plog->warning("Bad GLO satNum " + to_string(satNum) + " in strNum " + to_string(strNum) + LOG_MSG_COUNT);
+                    plog->warning(getMsgDescription(msgType) + "Bad satNum " + to_string(satNum) + " in strNum " + to_string(strNum));
                     break;
                 }
                 switch (strNum) {
@@ -166,7 +169,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                         if (nA >= GLO_MINOSN && nA <= GLO_MAXOSN) {
                             nAhnA[satIdx].nA = nA;
                             nAhnA[satIdx].strFhnA = strNum + 1;	//set the string number where continuation data should come
-                        } else plog->warning("Bad GLO slot " + to_string(nA) + " in strNum " + to_string(strNum) + LOG_MSG_COUNT);
+                        } else plog->warning(getMsgDescription(msgType) + "Bad slot " + to_string(nA) + " in strNum " + to_string(strNum));
                         break;
                     case 7:
                     case 9:
@@ -183,19 +186,29 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                                 nAhnA[inx].hnA = hnA;
                                 nAhnA[inx].nA = nAhnA[satIdx].nA;
                                 nAhnA[inx].strFhnA = 0;
-                            } else plog->warning("Bad GLO slot " + to_string(inx) + " slot-carrier frequency table " + to_string(satIdx) + LOG_MSG_COUNT);
+                            } else plog->warning(getMsgDescription(msgType) + "Bad slot " + to_string(inx) + " slot-carrier frequency table " + to_string(satIdx));
                         }
                         break;
                     default:
                         break;
                 }
                 break;
-            case MT_SATNAV_GPS_l1_CA:
-            case MT_MT_SATNAV_GALILEO_FNAV:
+            case MT_SATNAV_GPS_L1_CA:
+            case MT_SATNAV_GPS_L5_C:
+            case MT_SATNAV_GPS_C2:
+            case MT_SATNAV_GPS_L2_C:
+                rinex.setHdLnData(RinexData::SYS, 'G', aVectorStr);
+                break;
+            case MT_SATNAV_GALILEO_INAV:
+            case MT_SATNAV_GALILEO_FNAV:
+                rinex.setHdLnData(RinexData::SYS, 'E', aVectorStr);
+                break;
             case MT_SATNAV_BEIDOU_D1:
+            case MT_SATNAV_BEIDOU_D2:
+                rinex.setHdLnData(RinexData::SYS, 'C', aVectorStr);
                 break;
             default:
-                plog->warning(LOG_MSG_ERRO + getMsgDescription(msgType) + LOG_MSG_COUNT);
+                plog->warning(getMsgDescription(msgType) + to_string(msgType));
                 break;
         }
         skipToEOM();
@@ -216,18 +229,24 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
             rinex.setHdLnData(RinexData::GLPHS, "C1P", 0.0);
             rinex.setHdLnData(RinexData::GLPHS, "C2C", 0.0);
             rinex.setHdLnData(RinexData::GLPHS, "C2P", 0.0);
-            //set GLSLT data for the existing slots
+            //set GLSLT data for the existing slots and log the OSN - FCN table
             for (int i=0; i<GLO_MAXOSN; i++) {
-                if (nAhnA[i].nA != 0)
+                if (nAhnA[i].nA != 0) {
                     rinex.setHdLnData(RinexData::GLSLT, nAhnA[i].nA, nAhnA[i].hnA);
+                }
+            }
+            //log the OSN - FCN table
+            plog->fine("Satnum, String, OSN, FCN Table: for GLONASS");
+            for (int i = 0; i < GLO_MAXSATELLITES; ++i) {
+                plog->fine(to_string(i) + MSG_COMMA + to_string(nAhnA[i].strFhnA) + MSG_COMMA
+                           + to_string(nAhnA[i].nA) + MSG_COMMA + to_string(nAhnA[i].hnA));
             }
         }
     }
     return true;
 }
 
-/**collectEpochObsData extracts observation and time data from observation raw data (ORD) file messages for 
- * an epoch.
+/**collectEpochObsData extracts observation and time data from observation raw data (ORD) file messages for one epoch.
  *<p>Epoch RINEX data are contained in a sequence of MT_EPOCH {MT_SATOBS} messages.
  *<p>The epoch starts with a MT_EPOCH message. It contains clock data for the current epoch, including its time,
  * and the number of MT_SATOBS that would follow.
@@ -273,12 +292,12 @@ bool GNSSdataFromGRD::collectEpochObsData(RinexData &rinex) {
         msgCount++;
         switch(msgType) {
             case MT_EPOCH:
-                if (numMeasur > 0) plog->warning(LOG_MSG_ERRO + "Few MT_SATOBS in epoch" + LOG_MSG_COUNT);
+                if (numMeasur > 0) plog->warning(getMsgDescription(msgType) + "Few MT_SATOBS in epoch");
                 tRx = collectAndSetEpochTime(rinex, tow, numMeasur, "Epoch");
                 break;
             case MT_SATOBS:
                 if (numMeasur <= 0) {
-                    plog->warning(LOG_MSG_ERRO + "MT_SATOBS before MT_EPOCH" + LOG_MSG_COUNT);
+                    plog->warning(getMsgDescription(msgType) + "MT_SATOBS before MT_EPOCH");
                     break;
                 }
                 numMeasur--;    //an MT_SATOBS has been read, get its parameters
@@ -288,7 +307,7 @@ bool GNSSdataFromGRD::collectEpochObsData(RinexData &rinex) {
                            &carrierPhaseState, &carrierPhase,
                            &cn0db,  &carrierFrequencyMHz,
                            &psRangeRate, &psRangeRateUncert, &tTxUncert) != 14) {
-                    plog->warning(LOG_MSG_ERRO + "MT_SATOBS params" + LOG_MSG_COUNT);
+                    plog->warning(getMsgDescription(msgType) + "MT_SATOBS params");
                     break;
                 }
                 //solve the issue of Glonass satellite number
@@ -327,26 +346,27 @@ bool GNSSdataFromGRD::collectEpochObsData(RinexData &rinex) {
                         //set signal to noise values
                         signalId[0] = 'S';
                         rinex.saveObsData(constellId, satNum, string(signalId), cn0db, 0, sn_rnx, tow);
-                        plog->fine(getMsgDescription(msgType) + MSG_SPACE + string(1, constellId) + to_string(satNum) + MSG_SPACE +
+                        plog->fine(getMsgDescription(msgType) + string(1, constellId) + to_string(satNum) + MSG_SPACE +
                                    string(signalId+1) + MSG_SPACE +
                                    to_string(pseudorange) + MSG_SPACE + to_string(carrierPhase) + MSG_SPACE +
-                                   to_string(dopplerShift) + MSG_SPACE + to_string(cn0db) + LOG_MSG_COUNT);
+                                   to_string(dopplerShift) + MSG_SPACE + to_string(cn0db));
                     } else {
-                        plog->fine(getMsgDescription(msgType) + MSG_SPACE + string(1, constellId) + to_string(satNum) + MSG_SPACE +
-                                   string(signalId+1) + LOG_MSG_INVM + LOG_MSG_COUNT);
+                        plog->fine(getMsgDescription(msgType) + string(1, constellId) + to_string(satNum) + MSG_SPACE +
+                                   string(signalId+1) + LOG_MSG_INVM);
                     }
-                } else plog->warning(getMsgDescription(msgType) + MSG_SPACE + string(1, constellId) + to_string(satNum) + MSG_SPACE +
+                } else plog->warning(getMsgDescription(msgType) + string(1, constellId) + to_string(satNum) + MSG_SPACE +
                                      string(signalId+1) + MSG_SPACE + LOG_MSG_UNK);
                 if (numMeasur <= 0) {
                     skipToEOM();
                     return true;
                 }
                 break;
-            case MT_SATNAV_GPS_l1_CA:
+            case MT_SATNAV_GPS_L1_CA:
             case MT_SATNAV_GLONASS_L1_CA:
-            case MT_MT_SATNAV_GALILEO_FNAV:
+            case MT_SATNAV_GALILEO_FNAV:
             case MT_SATNAV_BEIDOU_D1:
-                plog->warning(LOG_MSG_ERRO + LOG_MSG_NINO + LOG_MSG_COUNT);
+            case MT_SATNAV_GPS_L5_C:
+                plog->warning(getMsgDescription(msgType) + LOG_MSG_NINO);
             default:
                 break;
         }
@@ -355,40 +375,47 @@ bool GNSSdataFromGRD::collectEpochObsData(RinexData &rinex) {
     return false;
 }
 
-/**collectNavData iterates over the input raw data file extracting navigation mesages to process their data.
+/**collectNavData iterates over the input raw data file extracting navigation messages to process their data.
  * Data extracted are saved in a RinexData object for futher printing in a navigation RINEX file.
  * 
  * @param rinex the RinexData object where data got from receiver will be placed
- * @return true when navigation data from an epoch messages have been acquired, false otherwise (End Of File reached)
+ * @return true when navigation data from at least one epoch messages have been acquired, false otherwise
  */
 bool GNSSdataFromGRD::collectNavData(RinexData &rinex) {
     int msgType;
-    bool bvoid;
-
+    bool acquiredNavData = false;
+    msgCount = 0;
     while (fscanf(grdFile, "%d;", &msgType) == 1) {
+        msgCount++;
         switch(msgType) {
-            case MT_SATNAV_GPS_l1_CA:
-            case MT_SATNAV_BEIDOU_D1:
-                bvoid = collectGPSEpochNav(rinex);
+            case MT_SATNAV_GPS_L1_CA:
+                acquiredNavData |= collectGPSL1CAEpochNav(rinex, msgType);
                 break;
             case MT_SATNAV_GLONASS_L1_CA:
-                bvoid = collectGLOEpochNav(rinex);
+                acquiredNavData |= collectGLOL1CAEpochNav(rinex);
                 break;
-            case MT_MT_SATNAV_GALILEO_FNAV:
+            case MT_SATNAV_GPS_L5_C:
+            case MT_SATNAV_GPS_C2:
+            case MT_SATNAV_GPS_L2_C:
+            case MT_SATNAV_GALILEO_INAV:
+            case MT_SATNAV_GALILEO_FNAV:
+            case MT_SATNAV_BEIDOU_D1:
+            case MT_SATNAV_BEIDOU_D2:
+                plog->warning(getMsgDescription(msgType) + MSG_NOT_IMPL + LOG_MSG_NAVIG);
                 break;
             case MT_EPOCH:
             case MT_SATOBS:
-                plog->severe(LOG_MSG_ERRO + LOG_MSG_NONI);
+                plog->severe(getMsgDescription(msgType) + LOG_MSG_NONI);
             default:
                 break;
         }
         skipToEOM();
     }
-    return false;
+    return acquiredNavData;
 }
 
 /**processHdData sets the Rinex header record data from the contens of the given message.
- * Each message type containts data to be processed and stored in the corresponding header record.
+ * Each message type contains data to be processed and stored in the corresponding header record.
  *
  * @param rinex the RinexData object which header data will be updated
  * @param msgType the raw data file message type
@@ -402,11 +429,12 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
     int logLevel = 0;
     double dvoid = 0.0;
     string svoid = string();
-    plog->fine(getMsgDescription(msgType) + ":" + msgContent + LOG_MSG_COUNT);
+    plog->fine(getMsgDescription(msgType) + msgContent);
     try {
         switch(msgType) {
             case MT_GRDVER:
-                plog->finest("MT_GRDVER currently not taken into account");
+            case MT_SITE:
+                plog->fine(getMsgDescription(msgType) + " currently ignored");
                 break;
             case MT_PGM:
                 rinex.setHdLnData(rinex.RUNBY, msgContent, svoid, svoid);
@@ -421,7 +449,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                 if (sscanf(msgContent.c_str(), "%lf;%lf;%lf", &da, &db, &dc) == 3) {
                     llaTOxyz(da * dgrToRads, db * dgrToRads, dc, x, y, z);
                     rinex.setHdLnData(rinex.APPXYZ, x, y, z);
-                } else plog->severe(LOG_MSG_ERRO + getMsgDescription(msgType) + " params" + LOG_MSG_COUNT);
+                } else plog->severe(getMsgDescription(msgType) + LOG_MSG_PARERR);
                 break;
             case MT_DATE:      //Date of the file
                 rinex.setHdLnData(rinex.RUNBY, svoid, svoid, msgContent);
@@ -435,9 +463,6 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
             case MT_RINEXVER:
                 rinex.setHdLnData(rinex.VERSION, stod(msgContent), dvoid, dvoid);
                 break;
-//            case MT_SITE:
-//                if (!msgContent.empty()) siteName = msgContent;
-//                break;
             case MT_RUN_BY:
                 rinex.setHdLnData(rinex.RUNBY, svoid, msgContent, svoid);
                 break;
@@ -466,7 +491,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                 clkoffset = stoi(msgContent);
                 rinex.setHdLnData(rinex.CLKOFFS, clkoffset);
                 applyBias = clkoffset == 1? true: false;
-                plog->finest(getMsgDescription(msgType) + " applyBias:" + (applyBias?string("TRUE"):string("FALSE")));
+                plog->fine(getMsgDescription(msgType) + " applyBias:" + (applyBias?string("TRUE"):string("FALSE")));
                 break;
             case MT_FIT:
                 if (msgContent.find("TRUE") != string::npos) fitInterval = true;
@@ -485,7 +510,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                     else if ((*it).compare("SBAS") == 0) *it = "S";
                     else if ((*it).compare("QZSS") == 0) *it = "J";
                     else {
-                        plog->warning(LOG_MSG_UNKSELSYS + (*it) +  LOG_MSG_COUNT);
+                        plog->warning(getMsgDescription(msgType) + LOG_MSG_UNKSELSYS + (*it));
                         selElements.erase(it);
                     }
                 }
@@ -499,7 +524,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                 selObservables = getElements(msgContent, "[], ");
                 break;
             default:
-                plog->warning(LOG_MSG_MT_UNK + to_string(msgType) + LOG_MSG_COUNT);
+                plog->warning(getMsgDescription(msgType) + to_string(msgType));
                 break;
         }
     } catch (string error) {
@@ -523,7 +548,6 @@ void GNSSdataFromGRD::processFilterData(RinexData &rinex) {
  */
 void GNSSdataFromGRD::setInitValues() {
     msgCount = 0;
-//    siteName = defaultSiteName;
     clkoffset = 0;
     applyBias = false;
     fitInterval = false;
@@ -609,10 +633,10 @@ void GNSSdataFromGRD::setInitValues() {
     memset(gpsSatFrame, 0, sizeof gpsSatFrame);
     memset(gloSatFrame, 0, sizeof gloSatFrame);
     memset(nAhnA, 0, sizeof nAhnA);
-//    memset(frqNum, 0, sizeof frqNum);
+    //memset(frqNum, 0, sizeof frqNum);
 }
 
-/**collectGPSEpochNav gets GPS navigation data from a raw message and store them into satellite ephemeris
+/**collectGPSL1CAEpochNav gets GPS L1 C/A like navigation data from a raw message and store them into satellite ephemeris
  * (bradcast orbit data) of the RinexData object.
  * For GPS L1 C/A, Beidou D1 & Beidou D2, each subframe of the navigation message contains 10 30-bit words.
  * Each word (30 bits) should be fit into the last 30 bits in a 4-byte word (skip B31 and B32), with MSB first,
@@ -620,48 +644,49 @@ void GNSSdataFromGRD::setInitValues() {
  * Only have interest subframes: 1,2,3 & page 18 of subframe 4 (pgID = 56 in GPS ICD Table 20-V)
  *
  * @param rinex	the class instance where data are stored
+ * @param msgType the true type of the message
  * @return true if data properly extracted (data correctly read, correct parity status, relevant subframe), false otherwise
  */
-bool GNSSdataFromGRD::collectGPSEpochNav(RinexData &rinex) {
+bool GNSSdataFromGRD::collectGPSL1CAEpochNav(RinexData &rinex, int msgType) {
     int status;     //the status of the navigation message:0=UNKNOWN, 1=PARITY PASSED, 2=REBUILT
     char constId;   //the constellation identifier this satellite belongs
     int satNum;		//the satellite number this navigation message belongssatt
     int sfrmNum;    //navigation message subframe number
     int pageNum;    //navigation message page number
     int msgSize;    //the message size in bytes
-    int aByte;      //aux var
-    unsigned int msg[GPS_l1_CA_MSGSIZE]; //to store GPS message bytes from receiver
+    int n;          //aux var
+    unsigned int msg[GPS_L1_CA_MSGSIZE]; //to store GPS message bytes from receiver
     unsigned int wd[GPS_SUBFRWORDS];	//a place to store the ten words of the GPS message after being refined
     int bom[8][4];		//a RINEX broadcats orbit like arrangement for satellite ephemeris mantissa
     double bo[8][4];	//the RINEX broadcats orbit arrangement for satellite ephemeris
     double tTag;		//the time tag for ephemeris data
-    string logmsg;
+    string logmsg = getMsgDescription(msgType);
     try {
-        //read MT_SATNAV_GPS_l1_CA message data
-        if (fscanf(grdFile, "%d;%c%02d;%d;%d;%d", &status, &constId, &satNum, &sfrmNum, &pageNum, &msgSize) != 5
+        //read MT_SATNAV_GPS_L1_CA message data
+        if (fscanf(grdFile, "%d;%c%d;%d;%d;%d", &status, &constId, &satNum, &sfrmNum, &pageNum, &msgSize) != 6
             || status < 1
             || constId != 'G'
             || satNum < GPS_MINPRN
             || satNum > GPS_MAXPRN
-            || msgSize != GPS_l1_CA_MSGSIZE) {
-            plog->warning(LOG_MSG_MT_SATNAV_GPS_l1_CA + LOG_MSG_ERRO + LOG_MSG_ONMS + LOG_MSG_COUNT);
+            || msgSize != GPS_L1_CA_MSGSIZE) {
+            plog->warning(logmsg + LOG_MSG_INMP + LOG_MSG_OSIZ);
             return false;
         }
+        logmsg += " sat:" + to_string(satNum) + " subfr:" + to_string(sfrmNum)
+                  + " pg:" + to_string(pageNum);
         if ((sfrmNum < 1 || sfrmNum > 4) || (sfrmNum == 4 && pageNum != 18)) {
-            plog->fine(LOG_MSG_MT_SATNAV_GPS_l1_CA + LOG_MSG_NAVIG + LOG_MSG_COUNT);
+            plog->fine(logmsg + LOG_MSG_NAVIG);
             return false;
         }
-        for (int i = 0; i < GPS_l1_CA_MSGSIZE; ++i) {
-            if (fscanf(grdFile,"%X", msg+i) != 1) {
-                plog->warning(LOG_MSG_MT_SATNAV_GPS_l1_CA + LOG_MSG_ERRO + LOG_MSG_ONMS + LOG_MSG_COUNT);
+        for (int i = 0; i < GPS_L1_CA_MSGSIZE; ++i) {
+            if (fscanf(grdFile,";%X", msg+i) != 1) {
+                plog->warning(logmsg + LOG_MSG_ERRO + LOG_MSG_INMP);
                 return false;
             }
         }
-        logmsg = LOG_MSG_MT_SATNAV_GPS_l1_CA + " sat:" + to_string(satNum) + " subfr:" + to_string(sfrmNum)
-                     + "pg:" + to_string(pageNum);
         //pack message bytes into the ten words with navigation data
-        for (int i = 0; i < GPS_SUBFRWORDS; ++i) {
-            wd[i] = msg[i*4]<<24 | msg[i*4+1]<<16 | msg[i*4+2]<<8 | msg[i*4+4];
+        for (int i = 0, n=0; i < GPS_SUBFRWORDS; ++i, n+=4) {
+            wd[i] = msg[n]<<24 | msg[n+1]<<16 | msg[n+2]<<8 | msg[n+3];
         }
         //remove parity from each GPS word getting the useful 24 bits
         //TODO verify: Note that when D30 is set, data bits are complemented (a non documented SiRF OSP feature)
@@ -673,36 +698,40 @@ bool GNSSdataFromGRD::collectGPSEpochNav(RinexData &rinex) {
         for (int i = 0; i < GPS_SUBFRWORDS; ++i) gpsSatFrame[satNum].gpsSatSubframes[sfrmNum].words[i] = wd[i];
         gpsSatFrame[satNum].gpsSatSubframes[sfrmNum].hasData = true;
         gpsSatFrame[satNum].hasData = true;
+        logmsg += " subframe saved.";
         //check if all ephemerides have been received, that is:
         //-subframes 1, 2, and 3 have data
         //-and their data belong belond to the same Issue Of Data (IOD)
         bool allRec = gpsSatFrame[satNum].gpsSatSubframes[0].hasData;
         for (int i = 1; i < 3; ++i) allRec = allRec && gpsSatFrame[satNum].gpsSatSubframes[i].hasData;
+        if (allRec) logmsg += " Frame completed";
         //IODC (8LSB in subframe 1) must be equal to IODE in subframe 2 and IODE in subframe 3
         unsigned int iodcLSB = (gpsSatFrame[satNum].gpsSatSubframes[0].words[7]>>16) & 0xFF;
         allRec &= iodcLSB == ((gpsSatFrame[satNum].gpsSatSubframes[1].words[2]>>16) & 0xFF);
         allRec &= iodcLSB == ((gpsSatFrame[satNum].gpsSatSubframes[2].words[9]>>16) & 0xFF);
         if (allRec) {
             //all ephemerides have been already received; extract and store them into the RINEX object
+            logmsg += " and IODs match.";
+            plog->fine(logmsg);
             if (extractGPSEphemeris(satNum, bom)) {
                 tTag = scaleGPSEphemeris(bom, bo);
                 rinex.saveNavData('G', satNum, bo, tTag);
-                logmsg += " and subframe completed";
             }
-            //TBW check if iono data (from subframe 4 page 18) exist in gpsSatFrame[satNum].gpsSatSubframes[3] and process them
+            //TODO check if iono data (from subframe 4 page 18) exist in gpsSatFrame[satNum].gpsSatSubframes[3] and process them
+            //TODO clean?
             //clear satellite frame storage
-            for (int i = 0; i < GPS_MAXSUBFRS; ++i) gpsSatFrame[satNum].gpsSatSubframes[i].hasData = false;
-            gpsSatFrame[satNum].hasData = false;
+            //for (int i = 0; i < GPS_MAXSUBFRS; ++i) gpsSatFrame[satNum].gpsSatSubframes[i].hasData = false;
+            //gpsSatFrame[satNum].hasData = false;
         }
-        plog->fine(logmsg + LOG_MSG_COUNT);
+        else plog->fine(logmsg);
     } catch (int error) {
-        plog->warning(LOG_MSG_MT_SATNAV_GPS_l1_CA + LOG_MSG_ERRO + to_string((long long) error) + LOG_MSG_COUNT);
+        plog->warning(logmsg + LOG_MSG_ERRO + to_string((long long) error));
         return false;
     }
     return true;
 }
 
-/**collectGLOEpochNav gets GLONASS navigation data from a raw message and store them into satellite ephemeris
+/**collectGLOL1CAEpochNav gets GLONASS navigation data from a raw message and store them into satellite ephemeris
  * (bradcast orbit data) of the RinexData object.
  * <p>For Glonass L1 C/A, each string contains 85 data bits, including the checksum.
  * <p>These bits should be fit into 11 bytes, with MSB first (skip B86-B88), covering a time period of 2 seconds
@@ -713,7 +742,7 @@ bool GNSSdataFromGRD::collectGPSEpochNav(RinexData &rinex) {
  * @param rinex	the class instance where data are stored
  * @return true if data properly extracted (data correctly read, correct parity status, relevant subframe), false otherwise
  */
-bool GNSSdataFromGRD::collectGLOEpochNav(RinexData &rinex) {
+bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex) {
     //message parameters given by Android
     char constId;   //the constellation identifier this satellite belongs
     int satNum, satIdx;		//the satellite number this navigation message belongssatt
@@ -727,12 +756,14 @@ bool GNSSdataFromGRD::collectGLOEpochNav(RinexData &rinex) {
     double tTag;    //the time tag for ephemeris data
     int sltnum;     //the GLONASS slot number extracted from navigation message
     //other
-    string logmsg;			//a place to build log messages
+    string logmsg = getMsgDescription(MT_SATNAV_GLONASS_L1_CA);			//a place to build log messages
     try {
         //read MT_SATNAV_GLONASS_L1_CA message data
-        if (!readGLOEpochNav(constId, satNum, strNum, frmNum, wd)) return false;
+        if (!readGLOL1CAEpochNav(constId, satNum, strNum, frmNum, wd)) return false;
+        logmsg += " sat:" + to_string(satNum) + " str:" + to_string(strNum)
+                  + " frm:" + to_string(frmNum);
         if (strNum < 1 || strNum > 5) {
-            plog->fine(LOG_MSG_MT_SATNAV_GLONASS_L1_CA + LOG_MSG_NAVIG + LOG_MSG_COUNT);
+            plog->fine(logmsg + LOG_MSG_NAVIG);
             return false;
         }
         strNum--;		//convert string number to its index
@@ -740,9 +771,9 @@ bool GNSSdataFromGRD::collectGLOEpochNav(RinexData &rinex) {
             for (int i = 0; i < GLO_STRWORDS; ++i) gloSatFrame[satIdx].gloSatStrings[strNum].words[i] = wd[i];
             gloSatFrame[satIdx].gloSatStrings[strNum].hasData = true;
             gloSatFrame[satIdx].hasData = true;
-            logmsg += " saved";
+            logmsg += " string saved in " + to_string(satIdx);
         } else {
-            plog->warning("GLO sat number not OSN or FCN" + LOG_MSG_COUNT);
+            plog->warning(logmsg + "GLO sat number not OSN or FCN");
             return false;
         }
         //check if all ephemerides have been received
@@ -759,16 +790,16 @@ bool GNSSdataFromGRD::collectGLOEpochNav(RinexData &rinex) {
             for (int i = 0; i < GLO_MAXSTRS; ++i) gloSatFrame[satIdx].gloSatStrings[i].hasData = false;
             gloSatFrame[satIdx].hasData = false;
         }
-        plog->fine(logmsg + LOG_MSG_COUNT);
+        plog->fine(logmsg);
     } catch (int error) {
-        plog->severe(LOG_MSG_MT_SATNAV_GLONASS_L1_CA + LOG_MSG_ERRO + to_string((long long) error));
+        plog->severe(logmsg + LOG_MSG_ERRO + to_string((long long) error));
         return false;
     }
     return true;
 }
 
 /**
- * readGLOEpochNav performs the common operations to read a GLONASS navigation message.
+ * readGLOL1CAEpochNav performs the common operations to read a GLONASS navigation message.
  *
  * @param constId constellation identification (G, R, E, ...)
  * @param satNum satellite number in the constellation
@@ -777,44 +808,43 @@ bool GNSSdataFromGRD::collectGLOEpochNav(RinexData &rinex) {
  * @param wd a place to store the bytes of the navigation message
  * @return true if data succesful read, false otherwise
  */
-bool GNSSdataFromGRD::readGLOEpochNav(char &constId, int &satNum, int &strnum, int &frame, unsigned int wd[]) {
+bool GNSSdataFromGRD::readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, unsigned int wd[]) {
     int status;     //the status of the navigation message:0=UNKNOWN, 1=PARITY PASSED, 2=REBUILT
     int msgSize;    //the message size in bytes
     unsigned int msg[GLO_STRWORDS * 4];
     try {
         //read MT_SATNAV_GLONASS_L1_CA message data
-        if (fscanf(grdFile, "%d;%c%02d;%d;%d;%d", &status, &constId, &satNum, &strnum, &frame, &msgSize) != 5
+        if (fscanf(grdFile, "%d;%c%d;%d;%d;%d", &status, &constId, &satNum, &strnum, &frame, &msgSize) != 6
             || msgSize != GLO_L1_CA_MSGSIZE
             || status < 1) {
-            plog->warning(LOG_MSG_MT_SATNAV_GLONASS_L1_CA + LOG_MSG_ERRO + LOG_MSG_ONMS + LOG_MSG_COUNT);
+            plog->warning(getMsgDescription(MT_SATNAV_GLONASS_L1_CA) + LOG_MSG_INMP + LOG_MSG_OSIZ);
             return false;
         }
         for (int i = 0; i < GLO_L1_CA_MSGSIZE; ++i) {
-            if (fscanf(grdFile,"%X", msg+i) != 1) {
-                plog->warning(LOG_MSG_MT_SATNAV_GLONASS_L1_CA + LOG_MSG_ERRO + LOG_MSG_ONMS + LOG_MSG_COUNT);
+            if (fscanf(grdFile,";%X", msg+i) != 1) {
+                plog->warning(getMsgDescription(MT_SATNAV_GLONASS_L1_CA) + LOG_MSG_INMP);
                 return false;
             }
         }
-        plog->fine(LOG_MSG_MT_SATNAV_GLONASS_L1_CA + " sat:" + to_string(satNum) +
-                     " str:" + to_string(strnum) + "frm:" + to_string(frame) + LOG_MSG_COUNT);
         //pack message bytes into words with navigation data
         for (int i = 0; i < GLO_STRWORDS; ++i) {
             wd[i] = msg[i*4]<<24 | msg[i*4+1]<<16 | msg[i*4+2]<<8 | msg[i*4+3];
         }
     } catch (int error) {
-        plog->severe(LOG_MSG_MT_SATNAV_GLONASS_L1_CA + LOG_MSG_ERRO + to_string((long long) error));
+        plog->severe(getMsgDescription(MT_SATNAV_GLONASS_L1_CA) + LOG_MSG_ERRO + to_string((long long) error));
         return false;
     }
     return true;
 }
 
-/**extractGPSEphemeris extract satellite number and ephemeris from the given navigation message transmitted by GPS
- * satellites.
- * <p>The navigation message data of interest here are stored in GPS frame data words (without parity). To process this data they are
- * arranged in an array of 3 x 15 = 45 words (where 16 bits are effective). Ephemeris are extracted from this array.
+/**extractGPSEphemeris extract satellite number and ephemeris from the given navigation message transmitted by GPS satellites.
+ * <p>The navigation message data of interest here have been stored in GPS frame (gpsSatFrame) data words (without parity).
+ * To process this data they are first arranged in an array of 3 x 15 = 45 words (navW) where 16 bits are effective).
+ * Ephemeris are extracted from this array and stored into a RINEX broadcast orbit like (bom) arrangement consisting of
+ * 8 lines with 3 ephemeris parameters each.
+ * <p>This method stores the MANTISSA of each satellite ephemeris into a broadcast orbit array, without applying any scale factor.
+ * Note: This method packs data in 45 words to allow reuse of code from the SiRF raw data version.
  * See SiRF ICD (A.5 Message # 15: Ephemeris Data) for details of the arrangement.
- * <p>The ephemeris extracted are store into a RINEX broadcast orbit like arrangement consisting of  8 lines with 3 ephemeris parameters each.
- * <p>This method stores the MANTISSA of each satellite ephemeris into a broadcast orbit array, whithout applying any scale factor.
  *
  * @param satIdx the satellite index in the gpsSatFrame
  * @param bom an array of broadcats orbit data containing the mantissa of each satellite ephemeris
@@ -907,7 +937,7 @@ bool GNSSdataFromGRD::extractGPSEphemeris(int satIdx, int (&bom)[8][4]) {
 
 /**extractGLOEphemeris extract satellite number, time tag, and ephemeris from the given navigation message string transmitted by GLONASS satellites.
  * The ephemeris extracted are store into a RINEX broadcast orbit like arrangement consisting of  8 lines with 3 ephemeris parameters each.
- * This method stores the mantissa of each satellite ephemeris into a broadcast orbit array, without applying any scale factor.
+ * This method stores the mantissa of each satellite ephemeris into a broadcast orbit array (bom), without applying any scale factor.
  *
  * @param satIdx the satellite index
  * @param bom an array of broadcats orbit data containing the mantissa of each satellite ephemeris
@@ -915,8 +945,9 @@ bool GNSSdataFromGRD::extractGPSEphemeris(int satIdx, int (&bom)[8][4]) {
  * @return true if data properly extracted (SV consistency in the channel data, version data consistency and receiver gives confidence on observables), false otherwise
  */
 bool GNSSdataFromGRD::extractGLOEphemeris(int satIdx, int (&bom)[8][4], int& slt) {
-    //TBC bit numbers, because from Android " each string contains 85 data bits, including the checksum. These bits should be fit into 11 bytes, with MSB first (skip B86-B88)"
-    //and currect bit numbers are derived from SiRF & GLONASS ICD
+    //TODO confirm bit numbers, because from Android "...each string contains 85 data bits, including the checksum.
+    // These bits should be fit into 11 bytes, with MSB first (skip B86-B88)... "
+    //and correct bit numbers if neccesary. Current values are derived from SiRF & GLONASS ICD
     slt = getBits(gloSatFrame[satIdx].gloSatStrings[3].words, 10, 5);	//slot number (n) in string 4, bits 15-11
     if ((slt < GLO_MINOSN) || (slt > GLO_MAXOSN)) {
         plog->warning("50bps NAV ignored. In string 4 slot number out of range:" + to_string((long long) slt));
@@ -944,7 +975,6 @@ bool GNSSdataFromGRD::extractGLOEphemeris(int satIdx, int (&bom)[8][4], int& slt
     bom[2][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 40, 24), 24);	//Satellite velocity, Y: bits 64-41 string 2
     bom[2][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 35, 5), 5);	//Satellite acceleration, Y: bits 40-36 string 2
     bom[2][3] = nAhnA[slt-1].hnA;										//Frequency number (-7 ... +13)
-//    bom[2][3] = frqNum[slt-1];										//Frequency number (-7 ... +13)
     bom[3][0] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 8, 27), 27);	//Satellite position, Z: bits 35-9 string 3
     bom[3][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 40, 24), 24);	//Satellite velocity, Z: bits 64-41 string 3
     bom[3][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 35, 5), 5);	//Satellite acceleration, Z: bits 40-36 string 3
@@ -1115,9 +1145,9 @@ void GNSSdataFromGRD::llaTOxyz( const double lat, const double lon, const double
 }
 
 /**collectAndSetEpochTime is called just after reading message identifier MT_EPOCH to read data
- * in the rest of the message. Data contained in the message is used to compute the epoch time,
- * which is given as the week number and the time of week (seconds from the
- * beginning of this week.
+ * in the rest of the message.
+ * Data contained in the message are used to compute the epoch time, which is given as the week number
+ * and the time of week (seconds from the beginning of this week.
  * <p> In the current version clock time is referenced to the GPS constellation time frame.
  * <p>The epoch time computed is used to set the current epoch time in the RinexData class.
  * <p>To compute the epoch time the receiver clock bias is taken into account or not, depending on
@@ -1145,7 +1175,7 @@ double GNSSdataFromGRD::collectAndSetEpochTime(RinexData& rinex, double& tow, in
     numObs = 0;
     if (fscanf(grdFile, "%lld;%lld;%lf;%lf;%d;%d;%d", &timeNanos, &fullBiasNanos, &biasNanos, &driftNanos,
                &clkDiscont, &leapSeconds, &numObs) != 7) {
-        plog->warning(LOG_MSG_ERRO + "MT_EPOCH params" + LOG_MSG_COUNT);
+        plog->warning(getMsgDescription(MT_EPOCH) + LOG_MSG_PARERR);
     }
     //Compute time references and set epoch time
     //Note that a double has a 15 digits mantisa. It is not sufficient for time nanos computation when counting
@@ -1178,8 +1208,10 @@ double GNSSdataFromGRD::collectAndSetEpochTime(RinexData& rinex, double& tow, in
  */
 string GNSSdataFromGRD::getMsgDescription(int msgt) {
     int i = 0;
-    while((msgTblTypes[i].type != msgt) && (msgTblTypes[i].type != MT_LAST)) i++;
-    return msgTblTypes[i].description;
+    while((msgTblTypes[i].type != msgt)
+          && (msgTblTypes[i].type != MT_LAST))
+        i++;
+    return msgTblTypes[i].description + LOG_MSG_COUNT + ":";
 }
 
 /**getElements extracts lexical elements (tokens) contained in "toExtract" and delimited

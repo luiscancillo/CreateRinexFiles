@@ -325,15 +325,36 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a, const string &b, const string
  * @return true if header values have been set, false otherwise
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
-bool RinexData::setHdLnData(RINEXlabel rl, char a,  const vector<string> &b) {
+//bool RinexData::setHdLnData(RINEXlabel rl, char a,  const vector<string> &b) {
+bool RinexData::setHdLnData(RINEXlabel rl, char a,  vector<string> &b) {
+    int sysIndex;
+    bool isNew;
 	switch(rl) {
 	case SYS:
 	case TOBS:
-		systems.push_back(GNSSsystem(a, b));
-	 	setLabelFlag(SYS);
-	 	setLabelFlag(TOBS);
-		return true;
-	default:
+        sysIndex = systemIndex(a);
+        if (sysIndex < 0) {
+        	//a new system and its observables is inserted
+            systems.push_back(GNSSsystem(a, b));
+            setLabelFlag(SYS);
+            setLabelFlag(TOBS);
+        } else {
+        	//the system already exists, insert the new observables
+            for (vector<string>::iterator itNewObs = b.begin(); itNewObs != b.end(); itNewObs++) {
+                isNew = true;
+                for (vector<OBSmeta>::iterator itObs = systems[sysIndex].obsTypes.begin(); itObs != systems[sysIndex].obsTypes.end(); itObs++) {
+                    if ((*itNewObs).compare(itObs->id) == 0) {
+                        isNew = false;
+                        break;
+                    }
+                }
+                if (isNew) {
+					systems[sysIndex].obsTypes.push_back(OBSmeta(*itNewObs, true, false));
+                }
+            }
+        }
+        return true;
+    default:
 		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
 	}
 }
@@ -1390,9 +1411,9 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
     const string msgFilterCleared("Filtering data not stated");
     const string msgWrongSysSat("Wrong sys-sat format (Ignored for filtering)=");
     const string msgSelObs(" the selected observable=");
-    const string msgNoSel("There are not valid data for filtering");
+    const string msgNoSel("Not selected system:");
     const string msgFilterStated("Filtering data stated: ");
-    const string msgSelSys("Selected system: satellites: observables= ");
+    const string msgSelSys("Selected system satellites, observables: ");
     struct SELsats {    //to store selSat data after verification
         int sysIndex;
         int satNumber;
@@ -1418,27 +1439,33 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
     vector<int> inxObsSys;
     char s, b[5];
     int sysIdx, obsIdx, n, o;
-    bool found, areCoherent;
+    bool found;
     string aStr;
-
+/*
     if (selSat.empty() && selObs.empty()) {
         plog->info(msgFilterCleared);
         return true;
     }
+*/
     plog->info(msgFilterStated);
     //1st: Verify input data in selSat. Save system identification and satellite number of correct ones
+    bool areCoherent = true;
     for (vector<string>::iterator it = selSat.begin(); it != selSat.end(); it++) {
         switch (sscanf((*it).c_str(), "%c%d", &s, &n)) {
             case 1:
                 if ((sysIdx = systemIndex(s)) >= 0) selectedSats.push_back(SELsats(sysIdx, -1));
                 break;
             case 2:
-                if ((sysIdx = systemIndex(s)) >= 0) selectedSats.push_back(SELsats(s, n));
+                if ((sysIdx = systemIndex(s)) >= 0) selectedSats.push_back(SELsats(sysIdx, n));
                 break;
             default:
                 sysIdx = -1;
         }
-        if (sysIdx < 0) plog->warning(msgWrongSysSat + (*it));
+        if (sysIdx < 0) {
+            plog->warning(msgWrongSysSat + (*it));
+            areCoherent = false;
+        //    return false;
+        }
     }
     //verify given data for selected systems - observations. Save system index and observation index of correct ones
     for (vector<string>::iterator itSelObs = selObs.begin(); itSelObs != selObs.end(); itSelObs++) {
@@ -1450,8 +1477,13 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
                 SET_OBS_SELECTED
             }
         }
-        if (!found) plog->warning(msgNotInSYS + msgSelObs + (*itSelObs));
+        if (!found) {
+            plog->warning(msgNotInSYS + msgSelObs + (*itSelObs));
+            areCoherent = false;
+        //    return false;
+        }
     }
+/*
     if (selectedSats.empty() && selectedObs.empty()) {
         plog->warning(msgNoSel);
         return false;
@@ -1469,27 +1501,59 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
         systems[it->sysIndex].selSystem = true;
         systems[it->sysIndex].selSat.push_back(it->satNumber);
     }
+*/
+    if (selectedSats.empty()) {
+        //reset system status as ALL SYSTEMS AND SATELLITES SELECTED
+        for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+            it->selSystem = true;
+            it->selSat.clear();
+        }
+    } else {
+        //there is at least a system selected to filter data. Reset select data in systems
+        for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+            it->selSystem = false;
+            it->selSat.clear();
+        }
+        //update select data in systems for satelite selected
+        for (vector<SELsats>::iterator it = selectedSats.begin(); it!= selectedSats.end(); it++) {
+            systems[it->sysIndex].selSystem = true;
+            if (it->satNumber != -1) systems[it->sysIndex].selSat.push_back(it->satNumber);
+        }
+    }
     //update observation data in systems for observations selected
+    /*
     for (vector<SELobs>::iterator it = selectedObs.begin(); it != selectedObs.end(); it++) {
         systems[it->sysIndex].selSystem = true;
         systems[it->sysIndex].obsTypes[it->obsIndex].sel = true;
     }
-    //log filtering data
-    plog->info(msgFilterStated);
+    */
+    if (!selectedObs.empty()) {
+        for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+            it->selSystem = false;
+            for (vector<OBSmeta>::iterator itobs = it->obsTypes.begin(); itobs != it->obsTypes.end(); itobs++) itobs->sel = false;
+        }
+        for (vector<SELobs>::iterator it = selectedObs.begin(); it != selectedObs.end(); it++) {
+            systems[it->sysIndex].selSystem = true;
+            systems[it->sysIndex].obsTypes[it->obsIndex].sel = true;
+        }
+    }
+    //plog->info(msgFilterStated);
     for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
         if (it->selSystem) {
-            aStr = msgSelSys + string(1, it->system) + msgColon;
+            aStr = msgSelSys + string(1, it->system) + msgComma;
             for (vector<int>::iterator itsat = it->selSat.begin(); itsat != it->selSat.end(); itsat++) {
                 aStr += msgSpace + to_string(*itsat);
             }
-            aStr += msgColon;
+            aStr += msgComma;
             for (vector<OBSmeta>::iterator itobs = it->obsTypes.begin(); itobs != it->obsTypes.end(); itobs++) {
                 if (itobs->sel) aStr += msgSpace + itobs->id;
             }
-            plog->info(aStr);
+        } else {
+            aStr = msgNoSel + string(1, it->system);
         }
+        plog->info(aStr);
     }
-    return true;
+    return areCoherent;
 #undef SET_OBS_SELECTED
 }
 
@@ -1530,18 +1594,16 @@ void RinexData::clearObsData() {
  * @return true if data have been saved, false otherwise
  */
 bool RinexData::saveNavData(char sys, int sat, double bo[8][4], double tTag) {
-    const string msgEphNotSaved("Ephemeris NOT SAVED for satellite, time tag=");
-    const string msgEphSaved("Ephemeris SAVED for satellite, time tag=");
 	//check if this sat epoch data already exists: same satellite and time tag
-	string msg = string(1,sys) + to_string(sat) + msgComma + to_string(tTag);
+	string logmsg = msgEpheSat+ string(1,sys) + to_string(sat+1) + msgTimeTag + to_string(tTag);
 	for (vector<SatNavData>::iterator it = epochNav.begin(); it != epochNav.end(); it++) {
 		if((sys == it->systemId) && (sat == it->satellite) && (tTag == it->navTimeTag)) {
-			plog->fine(msgEphNotSaved + msg);
+			plog->fine(logmsg + msgAlrEx);
 			return false;
 		}
 	}
 	epochNav.push_back(SatNavData(tTag, sys, sat, bo));
-	plog->fine(msgEphSaved + msg);
+	plog->fine(logmsg + msgSaved);
 	return true;
 }
 
@@ -1857,9 +1919,7 @@ void RinexData::printNavHeader(FILE* out) {
 			break;
 		case V302:
 		 	fileType = 'N';
-		 	setSysToPrintId(msgNotNav);
-/*
- * //count the number of systems to print and set value for sysToPrintId
+            //count the number of systems to print and set value for sysToPrintId
 		 	for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++)
 				if (it->selSystem) {
 					sysToPrintId = it->system;
@@ -1868,7 +1928,6 @@ void RinexData::printNavHeader(FILE* out) {
 			//if more than one selected, set Mixed value
 			if (n == 0) throw msgNotNav + "UNSELECTED";
 		 	else if (n > 1) sysToPrintId = 'M';
-*/
 			break;
 		default:
 		 	throw msgVerTBD;
@@ -1927,55 +1986,52 @@ void RinexData::printNavEpochs(FILE* out) {
 		throw msgVerTBD;
 	}
 	//filter nav epochs available
-	if (!filterNavData()) return;
+	//if (!filterNavData()) return;
 	//sort epochs available by time tag, system, and satellite
 	sort(epochNav.begin(), epochNav.end());
 	plog->finest(msgNavEpochsSys + string(1, sysToPrintId) + msgColon);
-	it = epochNav.begin();
-	while (it != epochNav.end()) {
-		if ((version == V210) && (it->systemId != sysToPrintId)) {	//in V210 only sats belonging to one system are printed
-			plog->finest(msgNavEpochIgn + string(1,it->systemId) + msgComma + to_string(it->satellite));
-			it++;
-		} else {
-			plog->finest(msgNavEpochPrn + string(1, it->systemId) + msgComma + to_string(it->satellite));
-			//print epoch first line
-			formatGPStime (timeBuffer, sizeof timeBuffer, timeFormat, " %4.1f", getGPSweek(it->navTimeTag), getGPStow(it->navTimeTag));
-			switch (version) {	//print satellite and epoch time
-			case V210:
-				fprintf(out, "%02d %s", it->satellite, timeBuffer);
-				if (it->systemId == 'R') {	//in V2 GLONASS tk to print is daily, not weekly 
-					it->broadcastOrbit[0][3] = fmod(it->broadcastOrbit[0][3], 86400);
-				}
-				break;
-			case V302:
-				fprintf(out, "%1c%02d %s", it->systemId, it->satellite, timeBuffer);
-				break;
-			default:
-				break;
-			}
-			for (int i=1; i<4; i++)	//add the Af0, Af1 & Af2 values
-				fprintf(out, "%19.12E", it->broadcastOrbit[0][i]);
-			fprintf(out, "\n");
-			//print the rest of broadcast orbit data lines
-			switch (it->systemId) {
-			//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc 
-			case 'G': nBroadcastOrbits = 8; nEphemeris = 26; break;
-			case 'E': nBroadcastOrbits = 8; nEphemeris = 25; break;
-			case 'S': nBroadcastOrbits = 4; nEphemeris = 12; break;
-			case 'R': nBroadcastOrbits = 4; nEphemeris = 12; break;
-			default: throw msgSysUnk + string(1, it->systemId);
-			}
-			for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
+	for (vector<SatNavData>::iterator it = epochNav.begin(); it != epochNav.end(); it++) {
+	    if (isSatSelected(systemIndex(it->systemId), it->satellite)) {
+            plog->finest(msgNavEpochPrn + string(1, it->systemId) + msgComma + to_string(it->satellite));
+            //print epoch first line
+            formatGPStime (timeBuffer, sizeof timeBuffer, timeFormat, " %4.1f", getGPSweek(it->navTimeTag), getGPStow(it->navTimeTag));
+            switch (version) {	//print satellite and epoch time
+                case V210:
+                    fprintf(out, "%02d %s", it->satellite, timeBuffer);
+                    if (it->systemId == 'R') {	//in V2 GLONASS tk to print is daily, not weekly
+                        it->broadcastOrbit[0][3] = fmod(it->broadcastOrbit[0][3], 86400);
+                    }
+                    break;
+                case V302:
+                    fprintf(out, "%1c%02d %s", it->systemId, it->satellite, timeBuffer);
+                    break;
+                default:
+                    break;
+            }
+            for (int i=1; i<4; i++)	//add the Af0, Af1 & Af2 values
+                fprintf(out, "%19.12E", it->broadcastOrbit[0][i]);
+            fprintf(out, "\n");
+            //print the rest of broadcast orbit data lines
+            switch (it->systemId) {
+                //set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
+                case 'G': nBroadcastOrbits = 8; nEphemeris = 26; break;
+                case 'E': nBroadcastOrbits = 8; nEphemeris = 25; break;
+                case 'S': nBroadcastOrbits = 4; nEphemeris = 12; break;
+                case 'R': nBroadcastOrbits = 4; nEphemeris = 12; break;
+                default: throw msgSysUnk + string(1, it->systemId);
+            }
+            for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
                 for (int j = 0; j < lineStartSpaces; j++) fputc(' ', out);
-				for (int j = 0; j < 4; j++) {
-					if (nEphemeris > 0) fprintf(out, "%19.12E", it->broadcastOrbit[i][j]);
-					else fprintf(out, "%19c", ' ');
-					nEphemeris--;
-				}
-				fprintf(out, "\n");
-			}
-			epochNav.erase(it);
-		}
+                for (int j = 0; j < 4; j++) {
+                    if (nEphemeris > 0) fprintf(out, "%19.12E", it->broadcastOrbit[i][j]);
+                    else fprintf(out, "%19c", ' ');
+                    nEphemeris--;
+                }
+                fprintf(out, "\n");
+            }
+	    } else {
+            plog->finest(msgNavEpochIgn + string(1,it->systemId) + msgComma + to_string(it->satellite));
+	    }
 	}
 }
 
@@ -3608,14 +3664,15 @@ bool RinexData::readRinexRecord(char* rinexRec, int recSize, FILE* input) {
 	return false;
 }
 
-/**isSatSelected checks if in the given system the given satellite in the list of selected ones
- * 
+/**isSatSelected checks if the given system and satellite are selected.
+ * Note that for a system selected an empty list of satellites is considered as ALL SELECTED
  * @param sysIx the given system index in the systems vector 
  * @param sat the given satellite number 
- * @return true when the given satellite is in the list or the list is empty, false otherwise
+ * @return true when the given system is selected and the satellite is in the list of selected ones or the list is empty, false otherwise
  */
 bool RinexData::isSatSelected(int sysIx, int sat) {
     if (sysIx < 0) return false;
+    if (!systems[sysIx].selSystem) return false;
 	if (systems[sysIx].selSat.empty()) return true;
 	for (vector<int>::iterator its = systems[sysIx].selSat.begin(); its != systems[sysIx].selSat.end(); its++)
 		if ((*its) == sat) return true;

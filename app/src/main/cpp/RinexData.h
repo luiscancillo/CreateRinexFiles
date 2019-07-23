@@ -106,7 +106,6 @@ const string msgContExp("continuation expected, but received ");
 const string msgFmtCont("wrong format in continuation line");
 const string msgPhPerType(" phase shift correction, for signal and sats ");
 const string msgErrBO("Error Broad.Orb.[");
-const string msgWrongVersion("Wrong version / file type");
 const string msgWrongSysPRN("Wrong system or PRN");
 const string msgWrongInFile("Wrong input file version");
 const string msgNewEp("New epoch.");
@@ -117,6 +116,10 @@ const string msgOccuEventNoMark("New site occupation event without MARKER NAME")
 const string msgHdEvent("Header information event: error in special records");
 const string msgExtEvent("External event without date");
 const string msgIgnObservable("Ignored observable in epoch, satellite, observable=");
+const string msgEpheSat("Ephemeris for sat ");
+const string msgTimeTag(" time tag ");
+const string msgAlrEx(". ALREADY EXIST");
+const string msgSaved(". SAVED");
 
 const string errorLabelMis("Internal error. Wrong argument types in RINEX label identifier=");
 //@endcond
@@ -252,7 +255,8 @@ public:
 	bool setHdLnData(RINEXlabel rl, char a, const string &b, double c, double d, double e);
     bool setHdLnData(RINEXlabel rl, char a, const string &b, double c, const vector<string> &d);
 	bool setHdLnData(RINEXlabel rl, char a, const string &b, const string &c);
-	bool setHdLnData(RINEXlabel rl, char a, const vector<string> &b);
+//	bool setHdLnData(RINEXlabel rl, char a, const vector<string> &b);
+    bool setHdLnData(RINEXlabel rl, char a, vector<string> &b);
 	bool setHdLnData(RINEXlabel rl, double a, double b=0.0, double c=0.0);
 	bool setHdLnData(RINEXlabel rl, int a, int b=0);
 	bool setHdLnData(RINEXlabel rl, int a, int b, const vector<string> &c);
@@ -447,9 +451,10 @@ private:
         GNSSsystem (char sys, vector<string> obsT) {
 			system = sys;
 			selSystem = true;
-			//insert all obsType having equivalence in RINEX V2
+			//insert all obsType having equivalence in RINEX V2, initially set to NOT SELECTED and NOT PRINTABLE
             for (int i = 0;  !v3obsTypes[i].empty() ; i++) obsTypes.push_back(OBSmeta(v3obsTypes[i], false, false));
-            //now update or insert obsTypes passed in argument
+            //for each obsTypes passed in argument, it already inserted set it as SELECTED
+            //if not, inset it as SELECTED and NOT PRINTABLE
             vector <OBSmeta> ::iterator itobs;
             for (vector<string>::iterator iti = obsT.begin(); iti != obsT.end(); iti++) {
                 for (itobs = obsTypes.begin(); (itobs != obsTypes.end()) && ((*iti).compare(itobs->id) != 0); itobs++);

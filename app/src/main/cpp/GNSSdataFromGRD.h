@@ -33,10 +33,16 @@
 //The type of messages that GNSS Raw Data files or setup arguments can contain
 #define MT_EPOCH 1     //Epoch data
 #define MT_SATOBS 2    //Satellite observations data
-#define MT_SATNAV_GPS_l1_CA 10    //Satellite navigation data from GPS L1 C/A
+#define MT_SATNAV_GPS_L1_CA 10    //Satellite navigation data from GPS L1 C/A
 #define MT_SATNAV_GLONASS_L1_CA 11    //Satellite navigation data from GLONASS L1 C/A
-#define MT_MT_SATNAV_GALILEO_FNAV 12    //Satellite navigation data from Galileo F/NAV
-#define MT_SATNAV_BEIDOU_D1 13    //Satellite navigation data from Beidou D1 & D2
+#define MT_SATNAV_GALILEO_INAV 12    //Satellite navigation data from Galileo I/NAV
+#define MT_SATNAV_GALILEO_FNAV 13    //Satellite navigation data from Galileo F/NAV
+#define MT_SATNAV_BEIDOU_D1 14    //Satellite navigation data from Beidou D1
+#define MT_SATNAV_GPS_L5_C 15    //Satellite navigation data from GPS L5 C
+#define MT_SATNAV_GPS_C2 16    //Satellite navigation data from GPS C2
+#define MT_SATNAV_GPS_L2_C 17    //Satellite navigation data from GPS L2 C
+#define MT_SATNAV_BEIDOU_D2 18    //Satellite navigation data from Beidou D2
+#define MT_SATNAV_UNKNOWN 40    //Satellite navigation data unknown type
 #define MT_GRDVER 50     //Observation or navigation raw data files version
 #define MT_PGM 51        //Program used to generate data (toRINEX Vx.x)
 #define MT_DVTYPE 52    //Device type
@@ -69,10 +75,16 @@ struct MsgType {
 const MsgType msgTblTypes[] = {
 	{MT_EPOCH, "MT_EPOCH"},
 	{MT_SATOBS, "MT_SATOBS"},
-	{MT_SATNAV_GPS_l1_CA, "MT_SATNAV_GPS_l1_CA"},
+	{MT_SATNAV_GPS_L1_CA, "MT_SATNAV_GPS_L1_CA"},
 	{MT_SATNAV_GLONASS_L1_CA, "MT_SATNAV_GLONASS_L1_CA"},
-	{MT_MT_SATNAV_GALILEO_FNAV, "MT_MT_SATNAV_GALILEO_FNAV"},
+	{MT_SATNAV_GALILEO_INAV, "MT_SATNAV_GALILEO_INAV"},
+    {MT_SATNAV_GALILEO_FNAV, "MT_SATNAV_GALILEO_FNAV"},
 	{MT_SATNAV_BEIDOU_D1, "MT_SATNAV_BEIDOU_D1"},
+	{MT_SATNAV_GPS_L5_C, "MT_SATNAV_GPS_L5_C"},
+    {MT_SATNAV_GPS_C2, "MT_SATNAV_GPS_C2"},
+    {MT_SATNAV_GPS_L2_C, "MT_SATNAV_GPS_L2_C"},
+    {MT_SATNAV_BEIDOU_D2, "MT_SATNAV_BEIDOU_D2"},
+    {MT_SATNAV_UNKNOWN, "MT_SATNAV_UNKNOWN"},
 	{MT_GRDVER, "MT_GRDVER"},
 	{MT_PGM, "MT_PGM"},
 	{MT_DVTYPE, "MT_DVTYPE"},
@@ -142,25 +154,25 @@ const double ECEF_A = 6378137.0;			//WGS-84 semi-major axis
 const double ECEF_E2 = 6.69437999014e-3;	//WGS-84 first eccentricity squared
 const double dgrToRads = ThisPI / 180.0;    //a factor to convert degrees to radiands
 //Log messages
+const string LOG_MSG_PARERR("Params error");
 const string LOG_MSG_ERROPEN("Error opening GRD file ");
 const string LOG_MSG_NINO("SATNAV record in OBS file");
 const string LOG_MSG_NONI("SATOBS record in NAV file");
 const string LOG_MSG_ERRO("Error reading ORD: ");
 const string LOG_MSG_INVM(" ignored invalid measurements");
 const string LOG_MSG_UNK(" ignored unknown measurements or GLO FCN");
-const string LOG_MSG_ONMS("Incorrect nav message parameters or size");
-const string LOG_MSG_NAVIG(". Navigation message ignored");
-const string LOG_MSG_MT_SATNAV_GPS_l1_CA(" MT_SATNAV_GPS_l1_CA data");
+const string LOG_MSG_INMP("Incorrect nav message parameters");
+const string LOG_MSG_OSIZ(" or size");
+const string LOG_MSG_NAVIG(". Ignored");
 const string LOG_MSG_UNKSELSYS("Unknown selected sys ");
-const string LOG_MSG_MT_UNK("MT_ unknown:");
-const string LOG_MSG_MT_SATNAV_GLONASS_L1_CA(" MT_SATNAV_GLONASS_L1_CA data");
 const string MSG_SPACE(" ");
-const string MSG_COMMA(",");
+const string MSG_COMMA(", ");
 const string MSG_SLASH("/");
 const string MSG_COLON(": ");
+const string MSG_NOT_IMPL("NOT IMPLEMENTED");
 //const string defaultSiteName = "PNT_";
 ///GPS constants related to navigation messages
-#define GPS_l1_CA_MSGSIZE 40
+#define GPS_L1_CA_MSGSIZE 40
 #define GPS_SUBFRWORDS 10
 #define GPS_MAXSUBFRS 5
 //GPS prn are in the range 1-32
@@ -185,7 +197,7 @@ const double GLO_SLOT_FRQ1 = 0.5625; //L1 frequency factor frq = 1602 + fcn * GL
 const double GLO_BAND_FRQ2 = 1246.0; //L2 band cnetral frequency
 const double GLO_SLOT_FRQ2 = 0.4375; //L2 frequency factor frq = 1246 + fcn * GLO_SLOT_FRQ in MHz
 //An offset to translate FCN 93-106 to 25-38
-#define GLO_FCN2OSN 68
+#define GLO_FCN2OSN (GLO_MINFCN - GLO_MAXOSN - 1)
 ///SBAS constants related to navigation message
 //SBAS prn are in the range 120-151 and 183-192
 //TBD
@@ -243,8 +255,6 @@ private:
         };
     };
     vector <GNSSsystem> systems;
-//    string receiver;
-//	string siteName;
 	bool fitInterval;
     int clkoffset;      //0: obs not corrected; 1: obs corrected
 	bool applyBias;		//true if clkoffet = 1: apply clock bias to pseudoranges and print it in epoch clock record
@@ -282,8 +292,9 @@ private:
         int hnA;            //the carrier frequency number (Hn in Almanac strings 7, 9, 11, 13, 15)
     };
 	GLONASSfreq nAhnA[GLO_MAXSATELLITES];	//for each channel, the nA and frequency data
+    //TODO check if this varible shall be finally removed in Android
     //the carrier frequency number (Hn in Almanac strings 7, 9, 11, 13, 15), or computed from observationa
-//	int frqNum[GLO_MAXSATELLITES];
+    //	int frqNum[GLO_MAXSATELLITES];
     //Constant data used to convert GPS broadcast navigation data to "true" values
     double GPS_SCALEFACTOR[8][4];	//the scale factors to apply to GPS broadcast orbit data to obtain ephemeris (see GPS ICD)
     double GPS_URA[16];			    //the User Range Accuracy values corresponding to URA index in the GPS SV broadcast data (see GPS ICD)
@@ -295,11 +306,11 @@ private:
     void setInitValues();
     bool extractGPSEphemeris(int sv, int (&bom)[8][4]);
     double scaleGPSEphemeris(int (&bom)[8][4], double (&bo)[8][4]);
-    bool collectGPSEpochNav(RinexData &rinex);
-    bool collectGLOEpochNav(RinexData &rinex);
+    bool collectGPSL1CAEpochNav(RinexData &rinex, int msgType);
+    bool collectGLOL1CAEpochNav(RinexData &rinex);
     bool extractGLOEphemeris(int sat, int (&bom)[8][4], int& slot);
     double scaleGLOEphemeris(int (&bom)[8][4], double (&bo)[8][4]);
-	bool readGLOEpochNav(char &constId, int &satNum, int &strnum, int &frame, unsigned int wd[]);
+	bool readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, unsigned int wd[]);
 	int gloSatIdx(int);
 
     bool addSignal(char system, string signal);

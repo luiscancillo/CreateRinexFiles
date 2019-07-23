@@ -36,10 +36,10 @@ const string LOG_MSG_FILNTS  = "File name too short: ";
 const string LOG_MSG_PRCINF = "Process input file ";
 const string LOG_MSG_PRCD = "Processed ";
 const string LOG_MSG_EPOIN = " epochs in ";
-const string LOG_MSG_PRCHFF = "Process header from file ";
+const string LOG_MSG_PRCHFF = "Extract header records from file ";
 const string LOG_MSG_OBSFNS = "Observation files not selected";
 const string LOG_MSG_NAVFNS = "Navigation files not selected";
-const string LOG_MSG_NAVVER = "Nav version is not 2.10 or 3.02";
+const string LOG_MSG_NAVVER = "Nav version set to 2.10 by default";
 const string LOG_MSG_INFILENOK = "Cannot open file ";
 const string LOG_MSG_OUTFILENOK = "Cannot create file ";
 const string LOG_MSG_LITE = "Function not implemented in This LITE version";
@@ -58,7 +58,9 @@ const unsigned int RET_ERR_CRENAV = 16;
 const unsigned int RET_ERR_WRINAV = 32;
 //defined below
 //int generateRINEXobs(vector<string> rnxPar, string inName, FILE* inFile, string rinexPath, Logger* plog);
-void setHdData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger* plog, vector<string> rnxPar, int inFileNum = 0, int inFileLast = 0);
+void extractRinexHeaderData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger* plog, vector<string> rnxPar, int inFileNum = 0, int inFileLast = 0);
+unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFullPath, string markName);
+unsigned int printOneNavFile(RinexData* prinex, vector<string> selSys, string outfilesFullPath, string markName);
 //bool printNavFile(RinexData*, string, string, Logger*);
 /**
  * generateRinexFilesJNI is the interface routine with the Java application toRINEX.
@@ -127,21 +129,41 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
     // If version to print is V2.10 one navigation RINEX file would be generated for each constellation having data.
     //TODO navigation files proccesing
     if (!inNavFileNames.empty()) {
-        log.info(LOG_MSG_LITE);
-        retError |= RET_ERR_CRENAV;
+        log.info(LOG_MSG_GENNAV);
+        /// 4.1 -extract from raw data files header and navigation data
+        pgnssRaw = new GNSSdataFromGRD(&log);
+        prinex = new RinexData(RinexData::V210, &log);
+        //extract from input files RINEX header and navigation data
+        n = inNavFileNames.size();
+        for (int i = 0; i < n; ++i) {
+            if (pgnssRaw->openInputGRD(infilesFullPath, inNavFileNames[i])) {
+                log.info(LOG_MSG_PRCINF + infilesFullPath + inNavFileNames[i]);
+                extractRinexHeaderData(prinex, pgnssRaw, &log, vrinexParams, i, n - 1);   //set RINEX header records
+                prinex->setHdLnData(RinexData::COMM, RinexData::COMM, MSG_SRC_FILE + inNavFileNames[i]);
+                pgnssRaw->rewindInputGRD();
+                pgnssRaw->collectNavData(*prinex);
+                pgnssRaw->closeInputGRD();
+            } else {
+                log.severe(LOG_MSG_INFILENOK + inNavFileNames[i]);
+                retError |= RET_ERR_OPENRAW;
+            }
+        }
+        prinex->getHdLnData(RinexData::MRKNAME, markName);
+        if (markName.length() == 0) markName = inNavFileNames[0].substr(0, inNavFileNames[0].find('.'));
+        retError |= printNavFiles(prinex, &log, outfilesFullPath, markName);
     } else log.info(LOG_MSG_NAVFNS);
     /// 5 -create observation files
     if (!inObsFileNames.empty()) {
         log.info(LOG_MSG_GENOBS);
         if((int) filesToPrint == 0) {
-            /// 4.1 -create one RINEX file for each ORD file
+            /// 5.1 -create one RINEX file for each ORD file
             for (int i = 0; i < inObsFileNames.size(); ++i) {
                 pgnssRaw = new GNSSdataFromGRD(&log);
                 prinex = new RinexData(RinexData::V210, &log);
                 //open input raw data file
                 if (pgnssRaw->openInputGRD(infilesFullPath, inObsFileNames[i])) {
                     log.info(LOG_MSG_PRCINF + infilesFullPath + inObsFileNames[i]);
-                    setHdData(prinex, pgnssRaw, &log, vrinexParams);   //set RINEX header records
+                    extractRinexHeaderData(prinex, pgnssRaw, &log, vrinexParams);   //set RINEX header records
                     //open output RINEX file
                     prinex->getHdLnData(RinexData::MRKNAME, markName);
                     if (markName.length() == 0) markName = inObsFileNames[i].substr(0, inObsFileNames[i].find('.'));
@@ -179,7 +201,7 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
                 delete pgnssRaw;
             }
         } else {
-            /// 4.2 -create a unique RINEX file containing observation data from all raw data files
+            /// 5.2 -create a unique RINEX file containing observation data from all raw data files
             pgnssRaw = new GNSSdataFromGRD(&log);
             prinex = new RinexData(RinexData::V210, &log);
             //extract from input files RINEX header data
@@ -187,7 +209,7 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
             for (int i = 0; i < n; ++i) {
                 if (pgnssRaw->openInputGRD(infilesFullPath, inObsFileNames[i])) {
                     log.info(LOG_MSG_PRCHFF + infilesFullPath + inObsFileNames[i]);
-                    setHdData(prinex, pgnssRaw, &log, vrinexParams, i, n - 1);   //set RINEX header records
+                    extractRinexHeaderData(prinex, pgnssRaw, &log, vrinexParams, i, n - 1);   //set RINEX header records
                     prinex->setHdLnData(RinexData::COMM, RinexData::COMM, MSG_SRC_FILE + inObsFileNames[i]);
                     pgnssRaw->closeInputGRD();
                 }
@@ -246,7 +268,7 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
     return env->NewStringUTF(to_string(retError).c_str());
 }
 /**
- * setHdData sets RINEX header records extracting data from the parameters passed and from
+ * extractRinexHeaderData sets RINEX header records extracting data from the parameters passed and from
  * the the message types containing header data in the given input file.
  * @param prinex pointer to the rinex object where header records will be stored
  * @param pgnssRaw pointer to the GNSS raw data object with data to be extracted
@@ -255,7 +277,7 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
  * @param inFileNum the number of the current input raw data file. First value = 0
  * @param inFileLast the last number of the input files to be processed
  */
-void setHdData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger* plog, vector<string> rnxPar, int inFileNum, int inFileLast) {
+void extractRinexHeaderData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger* plog, vector<string> rnxPar, int inFileNum, int inFileLast) {
     //GNSSdataFromGRD gnssRaw(inFile, plog);
     int msgType;
     string msgContent;
@@ -283,4 +305,60 @@ void setHdData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger* plog, vecto
     if(!pgnssRaw->collectHeaderData(*prinex, inFileNum, inFileLast)) {
         plog->warning("All, or some header data not acquired");
     }
+}
+/**
+ * printNavFiles conducts the printing of the RINEX navigation file or files for the navigation
+ * data already collected from the raw data files.
+ * Note that depending on the RINEX version to be printed it should be printed a unique file, if
+ * version 3 requested, or one file for each constellation, if version 2 requested.
+ *
+ * @param prinex pointer to the rinex object where header records will be stored
+ * @param plog a pointer to the logger
+ */
+unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFullPath, string markName) {
+    double rinexVersion;
+    char rinexType;
+    char constellationToPrint;
+    vector<string> selSys;
+    vector<string> selObs;
+    unsigned int retCode = 0;
+    try {
+        //set RINEX version to be printed
+        prinex->getHdLnData(RinexData::VERSION, rinexVersion, rinexType, constellationToPrint);
+        if ((rinexVersion != 3.02) && (rinexVersion != 2.10)) {
+            plog->warning(LOG_MSG_NAVVER);
+            rinexVersion = 2.10;
+            prinex->setHdLnData(RinexData::VERSION, rinexVersion, rinexVersion, rinexVersion);
+        }
+        //TODO establecer los registros SYS de header a partir de los systemas registrados
+        if (rinexVersion == 2.10) {
+            for (unsigned int i=0; prinex->getHdLnData(RinexData::SYS, constellationToPrint,  selObs, i); i++) {
+                selSys.clear();
+                selObs.clear();
+                selSys.push_back(string(1, constellationToPrint));
+                retCode = retCode | printOneNavFile(prinex, selSys, outfilesFullPath, markName);
+            }
+        } else {
+            retCode = printOneNavFile(prinex, selSys, outfilesFullPath, markName);
+        }
+    } catch (string error) {
+        plog->severe(error);
+    }
+    return retCode;
+}
+
+unsigned int printOneNavFile(RinexData* prinex, vector<string> selSys, string outfilesFullPath, string markName) {
+    vector<string> emptyVector;
+    string outFileName;	//the output file name for RINEX files
+    FILE* outFile;		//the RINEX file where data will be printed
+    prinex->setFilter(selSys, emptyVector);
+    if (selSys.size() != 0) markName = selSys[0] + markName;
+    outFileName = prinex->getNavFileName(markName);
+    if ((outFile = fopen((outfilesFullPath + outFileName).c_str(), "w")) != NULL) {
+        prinex->printNavHeader(outFile);
+        prinex->printNavEpochs(outFile);
+        fclose(outFile);
+        return 0;
+    }
+    return RET_ERR_CRENAV;
 }
