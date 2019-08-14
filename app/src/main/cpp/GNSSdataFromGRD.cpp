@@ -61,6 +61,10 @@ void GNSSdataFromGRD::closeInputGRD() {
     fclose(grdFile);
 }
 
+//A macro to get bit position in a stream from the bit position (BITNUMBER) in the message string stated in the GLONASS ICD
+//Each GLONASS 85 bits string is stored in an array of 3 uint32_t (the stream)
+#define GLOL1CA_BIT(BITNUMBER) (85 - BITNUMBER)
+
 /**collectHeaderData extracts data from the current ORD or NRD file to the RINEX file header.
  * Also other parameters useful for processing observation or navigation data are collected here.
  * <p>To collect this data the whole file is parsed from begin to end. Message types not containing
@@ -96,7 +100,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
     int frame;      //GLONASS navigation message frame number
     //for data extracted from the navigation message
     bool hasGLOsats;
-    unsigned int gloStrWord[GLO_STRWORDS]; //a place to store the bits stream of a GLONASS message
+    unsigned int gloStrWord[GLO_STRWORDS]; //a place to store the bits of a GLONASS message
     int nA;     //the slot number got from almanac data
     int hnA;
     bool tofoUnset = true;   //time of first observation not set
@@ -165,7 +169,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                     case 14:
                         //get from almanac data the slot number (nA) in bits 77-73 (see GLONASS ICD for details)
                         //and prepare slot - carrier frequency table to receive the value corresponding to this slot (if not already received)
-                        nA = getBits(gloStrWord, 72, 5);
+                        nA = getBits(gloStrWord, GLOL1CA_BIT(77), 5);
                         if (nA >= GLO_MINOSN && nA <= GLO_MAXOSN) {
                             nAhnA[satIdx].nA = nA;
                             nAhnA[satIdx].strFhnA = strNum + 1;	//set the string number where continuation data should come
@@ -181,7 +185,7 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                         if (nAhnA[satIdx].strFhnA == strNum) {
                             int inx = nAhnA[satIdx].nA - 1;
                             if ((inx >= 0) && (inx < GLO_MAXSATELLITES)) {
-                                hnA = getBits(gloStrWord, 9, 5);	//HnA (carrier frequency number) in almanac: bits 14-10
+                                hnA = getBits(gloStrWord, GLOL1CA_BIT(14), 5);	//HnA (carrier frequency number) in almanac: bits 14-10
                                 if (hnA >= 25) hnA -= 32;	//set negative values as per table 4.11 of the GLONASS ICD
                                 nAhnA[inx].hnA = hnA;
                                 nAhnA[inx].nA = nAhnA[satIdx].nA;
@@ -236,9 +240,11 @@ bool GNSSdataFromGRD::collectHeaderData(RinexData &rinex, int inFileNum = 0, int
                 }
             }
             //log the OSN - FCN table
-            plog->fine("Satnum, String, OSN, FCN Table: for GLONASS");
+            plog->finer("Table from GLONASS almanacs [Sat, str+, nA(OSN), HnA(FCN)]:");
+            ivoid = 1;
             for (int i = 0; i < GLO_MAXSATELLITES; ++i) {
-                plog->fine(to_string(i) + MSG_COMMA + to_string(nAhnA[i].strFhnA) + MSG_COMMA
+                if (i == 24) ivoid = 69;
+                plog->finer("R" + to_string(i+ivoid) + MSG_COMMA + to_string(nAhnA[i].strFhnA) + MSG_COMMA
                            + to_string(nAhnA[i].nA) + MSG_COMMA + to_string(nAhnA[i].hnA));
             }
         }
@@ -392,12 +398,14 @@ bool GNSSdataFromGRD::collectNavData(RinexData &rinex) {
                 acquiredNavData |= collectGPSL1CAEpochNav(rinex, msgType);
                 break;
             case MT_SATNAV_GLONASS_L1_CA:
-                acquiredNavData |= collectGLOL1CAEpochNav(rinex);
+                acquiredNavData |= collectGLOL1CAEpochNav(rinex, msgType);
+                break;
+            case MT_SATNAV_GALILEO_INAV:
+                acquiredNavData |= collectGALINEpochNav(rinex, msgType);
                 break;
             case MT_SATNAV_GPS_L5_C:
             case MT_SATNAV_GPS_C2:
             case MT_SATNAV_GPS_L2_C:
-            case MT_SATNAV_GALILEO_INAV:
             case MT_SATNAV_GALILEO_FNAV:
             case MT_SATNAV_BEIDOU_D1:
             case MT_SATNAV_BEIDOU_D2:
@@ -405,7 +413,7 @@ bool GNSSdataFromGRD::collectNavData(RinexData &rinex) {
                 break;
             case MT_EPOCH:
             case MT_SATOBS:
-                plog->severe(getMsgDescription(msgType) + LOG_MSG_NONI);
+                plog->warning(getMsgDescription(msgType) + LOG_MSG_NONI);
             default:
                 break;
         }
@@ -429,12 +437,12 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
     int logLevel = 0;
     double dvoid = 0.0;
     string svoid = string();
-    plog->fine(getMsgDescription(msgType) + msgContent);
+    plog->config(getMsgDescription(msgType) + msgContent);
     try {
         switch(msgType) {
             case MT_GRDVER:
             case MT_SITE:
-                plog->fine(getMsgDescription(msgType) + " currently ignored");
+                plog->finer(getMsgDescription(msgType) + " currently ignored");
                 break;
             case MT_PGM:
                 rinex.setHdLnData(rinex.RUNBY, msgContent, svoid, svoid);
@@ -449,7 +457,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                 if (sscanf(msgContent.c_str(), "%lf;%lf;%lf", &da, &db, &dc) == 3) {
                     llaTOxyz(da * dgrToRads, db * dgrToRads, dc, x, y, z);
                     rinex.setHdLnData(rinex.APPXYZ, x, y, z);
-                } else plog->severe(getMsgDescription(msgType) + LOG_MSG_PARERR);
+                } else plog->warning(getMsgDescription(msgType) + LOG_MSG_PARERR);
                 break;
             case MT_DATE:      //Date of the file
                 rinex.setHdLnData(rinex.RUNBY, svoid, svoid, msgContent);
@@ -490,8 +498,8 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
             case MT_CLKOFFS:
                 clkoffset = stoi(msgContent);
                 rinex.setHdLnData(rinex.CLKOFFS, clkoffset);
-                applyBias = clkoffset == 1? true: false;
-                plog->fine(getMsgDescription(msgType) + " applyBias:" + (applyBias?string("TRUE"):string("FALSE")));
+                applyBias = clkoffset == 1;
+                plog->config(getMsgDescription(msgType) + " applyBias:" + (applyBias?string("TRUE"):string("FALSE")));
                 break;
             case MT_FIT:
                 if (msgContent.find("TRUE") != string::npos) fitInterval = true;
@@ -528,7 +536,7 @@ void GNSSdataFromGRD::processHdData(RinexData &rinex, int msgType, string msgCon
                 break;
         }
     } catch (string error) {
-        plog->warning(error + LOG_MSG_COUNT);
+        plog->severe(error + LOG_MSG_COUNT);
     }
 }
 
@@ -551,44 +559,49 @@ void GNSSdataFromGRD::setInitValues() {
     clkoffset = 0;
     applyBias = false;
     fitInterval = false;
+    //scale factors to apply to ephemeris
+    //set default values
+    double COMMON_SCALEFACTOR[8][4]; //the scale factors to apply to GPS, GAL and BDS broadcast orbit data to obtain ephemeris
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 4; j++) {
+            COMMON_SCALEFACTOR[i][j] = 1.0;
+        }
+    }
+    //factors common to GPS, Galileo and Beidou?
+    //SV clock data have specific factors for each constellation
+    //broadcast orbit 1
+    COMMON_SCALEFACTOR[1][1] = pow(2.0, -5.0);              //Crs
+    COMMON_SCALEFACTOR[1][2] = pow(2.0, -43.0) * ThisPI;	//Delta N
+    COMMON_SCALEFACTOR[1][3] = pow(2.0, -31.0) * ThisPI;	//M0
+    //broadcast orbit 2
+    COMMON_SCALEFACTOR[2][0] = pow(2.0, -29.0);	//Cuc
+    COMMON_SCALEFACTOR[2][1] = pow(2.0, -33.0);	//e
+    COMMON_SCALEFACTOR[2][2] = pow(2.0, -29.0);	//Cus
+    COMMON_SCALEFACTOR[2][3] = pow(2.0, -19.0);	//sqrt(A) ????
+    //broadcast orbit 3
+    COMMON_SCALEFACTOR[3][1] = pow(2.0, -29.0);	    //Cic
+    COMMON_SCALEFACTOR[3][2] = pow(2.0, -31.0) * ThisPI;	//Omega0
+    COMMON_SCALEFACTOR[3][3] = pow(2.0, -29.0);	    //Cis
+    //broadcast orbit 4
+    COMMON_SCALEFACTOR[4][0] = pow(2.0, -31.0) * ThisPI;	//i0
+    COMMON_SCALEFACTOR[4][1] = pow(2.0, -5.0);              //Crc
+    COMMON_SCALEFACTOR[4][2] = pow(2.0, -31.0) * ThisPI;	//w
+    COMMON_SCALEFACTOR[4][3] = pow(2.0, -43.0) * ThisPI;	//w dot
+    //broadcast orbit 5
+    COMMON_SCALEFACTOR[5][0] = pow(2.0, -43.0) * ThisPI;	//Idot
+    //set scale factors for GPS
+    memcpy(GPS_SCALEFACTOR, COMMON_SCALEFACTOR, sizeof(GPS_SCALEFACTOR));
     //SV clock data
     GPS_SCALEFACTOR[0][0] = pow(2.0, 4.0);		//T0c
     GPS_SCALEFACTOR[0][1] = pow(2.0, -31.0);	//Af0: SV clock bias
     GPS_SCALEFACTOR[0][2] = pow(2.0, -43.0);	//Af1: SV clock drift
-    GPS_SCALEFACTOR[0][3] = pow(2.0, -55.0);	//Af2: SV clock drift rate
-    //broadcast orbit 1
-    GPS_SCALEFACTOR[1][0] = 1.0;				//IODE
-    GPS_SCALEFACTOR[1][1] = pow(2.0, -5.0);	//Crs
-    GPS_SCALEFACTOR[1][2] = pow(2.0, -43.0) * ThisPI;	//Delta N
-    GPS_SCALEFACTOR[1][3] = pow(2.0, -31.0) * ThisPI;	//M0
-    //broadcast orbit 2
-    GPS_SCALEFACTOR[2][0] = pow(2.0, -29.0);	//Cuc
-    GPS_SCALEFACTOR[2][1] = pow(2.0, -33.0);	//e
-    GPS_SCALEFACTOR[2][2] = pow(2.0, -29.0);	//Cus
-    GPS_SCALEFACTOR[2][3] = pow(2.0, -19.0);	//sqrt(A) ????
+    GPS_SCALEFACTOR[0][3] = pow(2.0, -55.0);	//Af2: SV clock drift rate GAL
     //broadcast orbit 3
     GPS_SCALEFACTOR[3][0] = pow(2.0, 4.0);		//TOE
-    GPS_SCALEFACTOR[3][1] = pow(2.0, -29.0);	//Cic
-    GPS_SCALEFACTOR[3][2] = pow(2.0, -31.0) * ThisPI;	//Omega0
-    GPS_SCALEFACTOR[3][3] = pow(2.0, -29.0);	//Cis
-    //broadcast orbit 4
-    GPS_SCALEFACTOR[4][0] = pow(2.0, -31.0) * ThisPI;	//i0
-    GPS_SCALEFACTOR[4][1] = pow(2.0, -5.0);	//Crc
-    GPS_SCALEFACTOR[4][2] = pow(2.0, -31.0) * ThisPI;	//w
-    GPS_SCALEFACTOR[4][3] = pow(2.0, -43.0) * ThisPI;	//w dot
-    //broadcast orbit 5
-    GPS_SCALEFACTOR[5][0] = pow(2.0, -43.0) * ThisPI;	//Idot ??
-    GPS_SCALEFACTOR[5][1] = 1.0;				//codes on L2
-    GPS_SCALEFACTOR[5][2] = 1.0;				//GPS week + 1024
-    GPS_SCALEFACTOR[5][3] = 1.0;				//L2 P data flag
     //broadcast orbit 6
-    GPS_SCALEFACTOR[6][0] = 1.0;				//SV accuracy (index)
-    GPS_SCALEFACTOR[6][1] = 1.0;				//SV health
     GPS_SCALEFACTOR[6][2] = pow(2.0, -31.0);	//TGD
-    GPS_SCALEFACTOR[6][3] = 1.0;				//IODC
     //broadcast orbit 7
     GPS_SCALEFACTOR[7][0] = 0.01;	//Transmission time of message in sec x 100
-    GPS_SCALEFACTOR[7][1] = 1.0;	//Fit interval
     GPS_SCALEFACTOR[7][2] = 0.0;	//Spare
     GPS_SCALEFACTOR[7][3] = 0.0;	//Spare
     //GPS_URA table to obtain in meters the value associated to the satellite accuracy index
@@ -609,33 +622,59 @@ void GNSSdataFromGRD::setInitValues() {
     GPS_URA[13] = pow(2.0, 11.0);
     GPS_URA[14] = pow(2.0, 12.0);
     GPS_URA[15] = 6144.00;
+    //set factors for Galileo
+    memcpy(GAL_SCALEFACTOR, COMMON_SCALEFACTOR, sizeof(GAL_SCALEFACTOR));
     //SV clock data
-    GLO_SCALEFACTOR[0][0] = 1;		//T0c
-    GLO_SCALEFACTOR[0][1] = pow(2.0, -30.0);		//-TauN
-    GLO_SCALEFACTOR[0][2] = pow(2.0, -40.0);		//+GammaN
-    GLO_SCALEFACTOR[0][3] = 1;					//Message frame time
+    GAL_SCALEFACTOR[0][0] = 60.;		        //T0c
+    GAL_SCALEFACTOR[0][1] = pow(2.0, -34.0);	//Af0: SV clock bias
+    GAL_SCALEFACTOR[0][2] = pow(2.0, -46.0);	//Af1: SV clock drift
+    GAL_SCALEFACTOR[0][3] = pow(2.0, -59.0);	//Af2: SV clock drift rate
+    //broadcast orbit 3
+    GAL_SCALEFACTOR[3][0] = 60.;		//TOE
+    //broadcast orbit 5
+    GAL_SCALEFACTOR[5][3] = 0.0;		//spare
+    //broadcast orbit 6
+    GAL_SCALEFACTOR[6][2] = pow(2.0, -32.0);	//BGD E5a / E1
+    GAL_SCALEFACTOR[6][3] = pow(2.0, -32.0);	//BGD E5b / E1
+    //broadcast orbit 7
+    //GAL_SCALEFACTOR[7][0] = 1.0;	//Transmission time of message
+    GAL_SCALEFACTOR[7][1] = 0.0;	//Spare
+    GAL_SCALEFACTOR[7][2] = 0.0;	//Spare
+    GAL_SCALEFACTOR[7][3] = 0.0;	//Spare
+    //Glonass scale factors
+    //SV clock data
+    GLO_SCALEFACTOR[0][0] = 1.;		            //T0c
+    GLO_SCALEFACTOR[0][1] = pow(2.0, -30.0);	//-TauN
+    GLO_SCALEFACTOR[0][2] = pow(2.0, -40.0);	//+GammaN
+    GLO_SCALEFACTOR[0][3] = 1.;					//Message frame time
     //broadcast orbit 1
     GLO_SCALEFACTOR[1][0] = pow(2.0, -11.0);	//X
     GLO_SCALEFACTOR[1][1] = pow(2.0, -20.0);	//Vel X
     GLO_SCALEFACTOR[1][2] = pow(2.0, -30.0);	//Accel X
-    GLO_SCALEFACTOR[1][3] = 1;					//SV Health
+    GLO_SCALEFACTOR[1][3] = 1.;					//SV Health
     //broadcast orbit 2
     GLO_SCALEFACTOR[2][0] = pow(2.0, -11.0);	//Y
     GLO_SCALEFACTOR[2][1] = pow(2.0, -20.0);	//Vel Y
     GLO_SCALEFACTOR[2][2] = pow(2.0, -30.0);	//Accel Y
-    GLO_SCALEFACTOR[2][3] = 1;					//Frequency number
+    GLO_SCALEFACTOR[2][3] = 1.;					//Frequency number
     //broadcast orbit 3
     GLO_SCALEFACTOR[3][0] = pow(2.0, -11.0);	//Z
     GLO_SCALEFACTOR[3][1] = pow(2.0, -20.0);	//Vel Z
     GLO_SCALEFACTOR[3][2] = pow(2.0, -30.0);	//Accel Z
-    GLO_SCALEFACTOR[3][3] = 1;					//Age of oper.
+    GLO_SCALEFACTOR[3][3] = 1.;					//Age of oper.
     //set tables to 0
-    memset(gpsSatFrame, 0, sizeof gpsSatFrame);
-    memset(gloSatFrame, 0, sizeof gloSatFrame);
+    memset(gpsSatFrame, 0, sizeof(gpsSatFrame));
+    memset(gloSatFrame, 0, sizeof(gloSatFrame));
+    memset(galInavSatFrame, 0, sizeof(galInavSatFrame));
     memset(nAhnA, 0, sizeof nAhnA);
     //memset(frqNum, 0, sizeof frqNum);
 }
 
+//A macro to get bit position in a subframe from the bit position (BITNUMBER) in the message subframe stated in the GPS ICD
+//Each GPS 30 bits message word is stored in an uint32_t (aligned to the rigth)
+//Each GPS subframe, comprising 10 words, is tored in an stream of 10 uint32_t
+//BITNUMBER is the position in the subframe, GPSL1CA_BIT gets the position in the stream
+#define GPSL1CA_BIT(BITNUMBER) ((BITNUMBER-1)/30*32 + (BITNUMBER-1)%30 + 2)
 /**collectGPSL1CAEpochNav gets GPS L1 C/A like navigation data from a raw message and store them into satellite ephemeris
  * (bradcast orbit data) of the RinexData object.
  * For GPS L1 C/A, Beidou D1 & Beidou D2, each subframe of the navigation message contains 10 30-bit words.
@@ -654,12 +693,12 @@ bool GNSSdataFromGRD::collectGPSL1CAEpochNav(RinexData &rinex, int msgType) {
     int sfrmNum;    //navigation message subframe number
     int pageNum;    //navigation message page number
     int msgSize;    //the message size in bytes
-    int n;          //aux var
     unsigned int msg[GPS_L1_CA_MSGSIZE]; //to store GPS message bytes from receiver
-    unsigned int wd[GPS_SUBFRWORDS];	//a place to store the ten words of the GPS message after being refined
     int bom[8][4];		//a RINEX broadcats orbit like arrangement for satellite ephemeris mantissa
     double bo[8][4];	//the RINEX broadcats orbit arrangement for satellite ephemeris
     double tTag;		//the time tag for ephemeris data
+    GPSSubframeData *psubframe;
+    GPSFrameData *pframe;
     string logmsg = getMsgDescription(msgType);
     try {
         //read MT_SATNAV_GPS_L1_CA message data
@@ -675,7 +714,7 @@ bool GNSSdataFromGRD::collectGPSL1CAEpochNav(RinexData &rinex, int msgType) {
         logmsg += " sat:" + to_string(satNum) + " subfr:" + to_string(sfrmNum)
                   + " pg:" + to_string(pageNum);
         if ((sfrmNum < 1 || sfrmNum > 4) || (sfrmNum == 4 && pageNum != 18)) {
-            plog->fine(logmsg + LOG_MSG_NAVIG);
+            plog->finer(logmsg + LOG_MSG_NAVIG);
             return false;
         }
         for (int i = 0; i < GPS_L1_CA_MSGSIZE; ++i) {
@@ -684,51 +723,130 @@ bool GNSSdataFromGRD::collectGPSL1CAEpochNav(RinexData &rinex, int msgType) {
                 return false;
             }
         }
+        pframe = &gpsSatFrame[satNum - 1];
+        psubframe = &pframe->gpsSatSubframes[sfrmNum - 1];
         //pack message bytes into the ten words with navigation data
         for (int i = 0, n=0; i < GPS_SUBFRWORDS; ++i, n+=4) {
-            wd[i] = msg[n]<<24 | msg[n+1]<<16 | msg[n+2]<<8 | msg[n+3];
+            psubframe->words[i] = msg[n]<<24 | msg[n+1]<<16 | msg[n+2]<<8 | msg[n+3];
         }
-        //remove parity from each GPS word getting the useful 24 bits
-        //TODO verify: Note that when D30 is set, data bits are complemented (a non documented SiRF OSP feature)
+        //TODO verify the following does not apply: when D30 is set, data bits are complemented (a non documented SiRF OSP feature)
+        /*
         for (int i=0; i<GPS_SUBFRWORDS; i++)
             if ((wd[i] & 0x40000000) == 0) wd[i] = (wd[i]>>6) & 0xFFFFFF;
             else wd[i] = ~(wd[i]>>6) & 0xFFFFFF;
-        sfrmNum--;   //convert subframe number to its index
-        satNum--;   //convert satellite number to its index
         for (int i = 0; i < GPS_SUBFRWORDS; ++i) gpsSatFrame[satNum].gpsSatSubframes[sfrmNum].words[i] = wd[i];
         gpsSatFrame[satNum].gpsSatSubframes[sfrmNum].hasData = true;
-        gpsSatFrame[satNum].hasData = true;
+        //TODO: to analyze include the following code for correctness
+        //check for SVhealth
+        uint32_t svHealth = (navW[4]>>10) & 0x3F;
+        if ((svHealth & 0x20) != 0) {
+            sprintf(errorBuff, "Wrong SV %2u health <%02hx>", sv, svHealth);
+            plog->info(string(errorBuff));
+            return false;
+        }
+        */
+        psubframe->hasData = true;
+        pframe->hasData = true;
         logmsg += " subframe saved.";
         //check if all ephemerides have been received, that is:
         //-subframes 1, 2, and 3 have data
         //-and their data belong belond to the same Issue Of Data (IOD)
-        bool allRec = gpsSatFrame[satNum].gpsSatSubframes[0].hasData;
-        for (int i = 1; i < 3; ++i) allRec = allRec && gpsSatFrame[satNum].gpsSatSubframes[i].hasData;
-        if (allRec) logmsg += " Frame completed";
-        //IODC (8LSB in subframe 1) must be equal to IODE in subframe 2 and IODE in subframe 3
-        unsigned int iodcLSB = (gpsSatFrame[satNum].gpsSatSubframes[0].words[7]>>16) & 0xFF;
-        allRec &= iodcLSB == ((gpsSatFrame[satNum].gpsSatSubframes[1].words[2]>>16) & 0xFF);
-        allRec &= iodcLSB == ((gpsSatFrame[satNum].gpsSatSubframes[2].words[9]>>16) & 0xFF);
+        bool allRec = pframe->gpsSatSubframes[0].hasData;
+        for (int i = 1; i < 3; ++i) allRec = allRec && pframe->gpsSatSubframes[i].hasData;
         if (allRec) {
-            //all ephemerides have been already received; extract and store them into the RINEX object
-            logmsg += " and IODs match.";
-            plog->fine(logmsg);
-            if (extractGPSEphemeris(satNum, bom)) {
+            logmsg += " Frame completed.";
+            //IODC (8LSB in subframe 1) must be equal to IODE in subframe 2 and IODE in subframe 3
+            uint32_t iodcLSB = getBits(pframe->gpsSatSubframes[0].words, GPSL1CA_BIT(211), 8);
+            uint32_t iode2 = getBits(pframe->gpsSatSubframes[1].words, GPSL1CA_BIT(61), 8);
+            uint32_t iode3 = getBits(pframe->gpsSatSubframes[2].words, GPSL1CA_BIT(271), 8);
+            if ((iodcLSB == iode2) && (iodcLSB == iode3)) {
+                //all ephemerides have been already received; extract and store them into the RINEX object
+                logmsg += " IODs match.";
+                //TODO check if iono data (from subframe 4 page 18) exist in gpsSatFrame[satNum].gpsSatSubframes[3] and process them
+                plog->fine(logmsg);
+                extractGPSEphemeris(satNum - 1, bom);
                 tTag = scaleGPSEphemeris(bom, bo);
                 rinex.saveNavData('G', satNum, bo, tTag);
-            }
-            //TODO check if iono data (from subframe 4 page 18) exist in gpsSatFrame[satNum].gpsSatSubframes[3] and process them
-            //TODO clean?
-            //clear satellite frame storage
-            //for (int i = 0; i < GPS_MAXSUBFRS; ++i) gpsSatFrame[satNum].gpsSatSubframes[i].hasData = false;
-            //gpsSatFrame[satNum].hasData = false;
-        }
-        else plog->fine(logmsg);
+            } else plog->fine(logmsg + " and IODs different.");
+        } else plog->fine(logmsg);
     } catch (int error) {
-        plog->warning(logmsg + LOG_MSG_ERRO + to_string((long long) error));
+        plog->severe(logmsg + LOG_MSG_ERRO + to_string((long long) error));
         return false;
     }
     return true;
+}
+
+/**extractGPSEphemeris extract satellite number and ephemeris from the given navigation message transmitted by GPS satellites.
+ * <p>The navigation message data of interest here have been stored in GPS frame (gpsSatFrame) data words (without parity).
+ * To process this data they are first arranged in an array of 3 x 15 = 45 words (navW) where 16 bits are effective).
+ * Ephemeris are extracted from this array and stored into a RINEX broadcast orbit like (bom) arrangement consisting of
+ * 8 lines with 3 ephemeris parameters each.
+ * <p>This method stores the MANTISSA of each satellite ephemeris into a broadcast orbit array, without applying any scale factor.
+ * Note: This method packs data in 45 words to allow reuse of code from the SiRF raw data version.
+ * See SiRF ICD (A.5 Message # 15: Ephemeris Data) for details of the arrangement.
+ *
+ * @param satIdx the satellite index in the gpsSatFrame
+ * @param bom an array of broadcats orbit data containing the mantissa of each satellite ephemeris
+ */
+void GNSSdataFromGRD::extractGPSEphemeris(int satIdx, int (&bom)[8][4]) {
+    uint32_t *psubfr1data = gpsSatFrame[satIdx].gpsSatSubframes[0].words;
+    uint32_t *psubfr2data = gpsSatFrame[satIdx].gpsSatSubframes[1].words;
+    uint32_t *psubfr3data = gpsSatFrame[satIdx].gpsSatSubframes[2].words;
+    //broadcast line 0
+    bom[0][0] = getBits(psubfr1data, GPSL1CA_BIT(219), 16);	                    //T0C
+    bom[0][1] = getTwosComplement(getBits(psubfr1data, GPSL1CA_BIT(271), 22), 22);	//Af0
+    bom[0][2] = getTwosComplement(getBits(psubfr1data, GPSL1CA_BIT(249), 16), 16);	//Af1
+    bom[0][3] = getTwosComplement(getBits(psubfr1data, GPSL1CA_BIT(241), 8), 8);	//Af2
+    //broadcast line 1
+    bom[1][0] = getBits(psubfr2data, GPSL1CA_BIT(61), 8);	                        //IODE
+    bom[1][1] = getTwosComplement(getBits(psubfr2data, GPSL1CA_BIT(69), 16), 16);	//Crs
+    bom[1][2] = getTwosComplement(getBits(psubfr2data, GPSL1CA_BIT(91), 16), 16);	//Delta n
+    bom[1][3] = (getBits(psubfr2data, GPSL1CA_BIT(107), 8) << 24) | getBits(psubfr2data, GPSL1CA_BIT(121), 24);//M0
+    //broadcast line 2
+    bom[2][0] = getTwosComplement(getBits(psubfr2data, GPSL1CA_BIT(151), 16), 16);			                            //Cuc
+    bom[2][1] = (getBits(psubfr2data, GPSL1CA_BIT(167), 8) << 24) | getBits(psubfr2data, GPSL1CA_BIT(181), 24);	//e
+    bom[2][2] = getTwosComplement(getBits(psubfr2data, GPSL1CA_BIT(211), 16), 16);		                                //Cus
+    bom[2][3] = (getBits(psubfr2data, GPSL1CA_BIT(227), 8) << 24) | getBits(psubfr2data, GPSL1CA_BIT(241), 24);	//sqrt(A)
+    //broadcast line 3
+    bom[3][0] = getBits(psubfr2data, GPSL1CA_BIT(271), 16);	                                                        //Toe
+    bom[3][1] = getTwosComplement(getBits(psubfr3data, GPSL1CA_BIT(61), 16), 16);						                //Cic
+    bom[3][2] = (getBits(psubfr3data, GPSL1CA_BIT(77), 8) << 24) | getBits(psubfr3data, GPSL1CA_BIT(91), 24); 	//OMEGA0
+    bom[3][3] = getTwosComplement(getBits(psubfr3data, GPSL1CA_BIT(121), 16), 16);		                				//CIS
+    //broadcast line 4
+    bom[4][0] = (getBits(psubfr3data, GPSL1CA_BIT(137), 8) << 24) | getBits(psubfr3data, GPSL1CA_BIT(151), 24);	//i0
+    bom[4][1] = getTwosComplement(getBits(psubfr3data, GPSL1CA_BIT(181), 16), 16);										//Crc
+    bom[4][2] = (getBits(psubfr3data, GPSL1CA_BIT(197), 8) << 24) | getBits(psubfr3data, GPSL1CA_BIT(211), 24);	//w (omega)
+    bom[4][3] = getTwosComplement(getBits(psubfr3data, GPSL1CA_BIT(241), 24), 24);                                     //w dot
+    //broadcast line 5
+    bom[5][0] = getTwosComplement(getBits(psubfr3data, GPSL1CA_BIT(279), 14), 14);	//IDOT
+    bom[5][1] = getBits(psubfr1data, GPSL1CA_BIT(71), 2);		            		//Codes on L2
+    bom[5][2] = getBits(psubfr1data, GPSL1CA_BIT(61), 10) + 2048; 	                //GPS week# (module 1024) TODO true week
+    bom[5][3] = getBits(psubfr1data, GPSL1CA_BIT(91), 1);				            //L2P data flag
+    //broadcast line 6
+    bom[6][0] = getBits(psubfr1data, GPSL1CA_BIT(73), 4);			//URA index
+    bom[6][1] = getBits(psubfr1data, GPSL1CA_BIT(77), 6);      	//SV health
+    bom[6][2] = getTwosComplement(getBits(psubfr1data, GPSL1CA_BIT(197), 8), 8);                                   //TGD
+    bom[6][3] = (getBits(psubfr1data, GPSL1CA_BIT(83), 2) << 8) | getBits(psubfr1data, GPSL1CA_BIT(211), 8);	//IODC
+    //broadcast line 7
+    bom[7][0] = getBits(psubfr1data, GPSL1CA_BIT(31), 17) *6 *100; //Transmission time of message: the 17 MSB of the Zcount in HOW
+    // converted to sec and scaled by 100
+    bom[7][1] = getBits(psubfr2data, GPSL1CA_BIT(287), 1);			//Fit interval flag
+    bom[7][2] = 0;		//Spare
+    bom[7][3] = 0;  	//Spare
+    //TODO extract iono and clock corrections, and leap seconds adding lines to bom
+}
+
+/**bitPosFromGPSICD determines the bit position in a bit atream of unsignet int used to store GPS frames.
+ * Each GPS 30 bits word is stored in an uint32_t having sizeof(int)*8 bits. Each GPS frame is stored in
+ * an array of 10 uint32_t that can be see as a bit stream.
+ * This function computes the bit position in the array (considered as a bit stream) of a given GPS ICD bit position.
+ *
+ * @param bitPosICD the position stated in the GPS ICD, in the range 1 to 300
+ * @retunr the bit position in the bit stream of unsigned ints containing the subframe bits
+ */
+int GNSSdataFromGRD::bitPosFromGPSICD(int bitPosICD) {
+    bitPosICD--;
+    return (bitPosICD/30*(sizeof bitPosICD)*8 + bitPosICD%30 + (sizeof bitPosICD)*8 - 30);
 }
 
 /**collectGLOL1CAEpochNav gets GLONASS navigation data from a raw message and store them into satellite ephemeris
@@ -740,9 +858,10 @@ bool GNSSdataFromGRD::collectGPSL1CAEpochNav(RinexData &rinex, int msgType) {
  * <p>- FCN case: it is in the range 96-106 obtainded from FCN (-7 to +6) + 100. The slot number is in string 4 bits 15-11
 
  * @param rinex	the class instance where data are stored
+ * @param msgType the true type of the message
  * @return true if data properly extracted (data correctly read, correct parity status, relevant subframe), false otherwise
  */
-bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex) {
+bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex, int msgType) {
     //message parameters given by Android
     char constId;   //the constellation identifier this satellite belongs
     int satNum, satIdx;		//the satellite number this navigation message belongssatt
@@ -756,14 +875,13 @@ bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex) {
     double tTag;    //the time tag for ephemeris data
     int sltnum;     //the GLONASS slot number extracted from navigation message
     //other
-    string logmsg = getMsgDescription(MT_SATNAV_GLONASS_L1_CA);			//a place to build log messages
+    string logmsg = getMsgDescription(msgType);			//a place to build log messages
     try {
         //read MT_SATNAV_GLONASS_L1_CA message data
         if (!readGLOL1CAEpochNav(constId, satNum, strNum, frmNum, wd)) return false;
-        logmsg += " sat:" + to_string(satNum) + " str:" + to_string(strNum)
-                  + " frm:" + to_string(frmNum);
+        logmsg += " sat:" + to_string(satNum) + " str:" + to_string(strNum) + " frm:" + to_string(frmNum);
         if (strNum < 1 || strNum > 5) {
-            plog->fine(logmsg + LOG_MSG_NAVIG);
+            plog->finer(logmsg + LOG_MSG_NAVIG);
             return false;
         }
         strNum--;		//convert string number to its index
@@ -771,9 +889,9 @@ bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex) {
             for (int i = 0; i < GLO_STRWORDS; ++i) gloSatFrame[satIdx].gloSatStrings[strNum].words[i] = wd[i];
             gloSatFrame[satIdx].gloSatStrings[strNum].hasData = true;
             gloSatFrame[satIdx].hasData = true;
-            logmsg += " string saved in " + to_string(satIdx);
+            logmsg += ". String saved in " + to_string(satIdx);
         } else {
-            plog->warning(logmsg + "GLO sat number not OSN or FCN");
+            plog->warning(logmsg + ". GLO sat number not OSN or FCN");
             return false;
         }
         //check if all ephemerides have been received
@@ -781,16 +899,21 @@ bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex) {
         for (int i = 1; i < GLO_MAXSTRS; ++i) allRec = allRec && gloSatFrame[satIdx].gloSatStrings[i].hasData;
         if (allRec) {
             //all ephemerides have been already received; extract and store them into the RINEX object
-            if (extractGLOEphemeris(satIdx, bom, sltnum)) {
+            extractGLOEphemeris(satIdx, bom, sltnum);
+            logmsg += ". Frame completed for slot " + to_string(sltnum);
+            if ((sltnum < GLO_MINOSN) || (sltnum > GLO_MAXOSN)) {
+                logmsg + ", but ignored: slot out of range.";
+                plog->fine(logmsg);
+            } else {
                 tTag = scaleGLOEphemeris(bom, bo);
                 rinex.saveNavData('R', sltnum, bo, tTag);
-                logmsg += " and frame completed";
+                plog->fine(logmsg);
             }
             //clear satellite frame storage
             for (int i = 0; i < GLO_MAXSTRS; ++i) gloSatFrame[satIdx].gloSatStrings[i].hasData = false;
             gloSatFrame[satIdx].hasData = false;
         }
-        plog->fine(logmsg);
+        else plog->fine(logmsg);
     } catch (int error) {
         plog->severe(logmsg + LOG_MSG_ERRO + to_string((long long) error));
         return false;
@@ -808,7 +931,7 @@ bool GNSSdataFromGRD::collectGLOL1CAEpochNav(RinexData &rinex) {
  * @param wd a place to store the bytes of the navigation message
  * @return true if data succesful read, false otherwise
  */
-bool GNSSdataFromGRD::readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, unsigned int wd[]) {
+bool GNSSdataFromGRD::readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, uint32_t wd[]) {
     int status;     //the status of the navigation message:0=UNKNOWN, 1=PARITY PASSED, 2=REBUILT
     int msgSize;    //the message size in bytes
     unsigned int msg[GLO_STRWORDS * 4];
@@ -836,105 +959,6 @@ bool GNSSdataFromGRD::readGLOL1CAEpochNav(char &constId, int &satNum, int &strnu
     }
     return true;
 }
-
-/**extractGPSEphemeris extract satellite number and ephemeris from the given navigation message transmitted by GPS satellites.
- * <p>The navigation message data of interest here have been stored in GPS frame (gpsSatFrame) data words (without parity).
- * To process this data they are first arranged in an array of 3 x 15 = 45 words (navW) where 16 bits are effective).
- * Ephemeris are extracted from this array and stored into a RINEX broadcast orbit like (bom) arrangement consisting of
- * 8 lines with 3 ephemeris parameters each.
- * <p>This method stores the MANTISSA of each satellite ephemeris into a broadcast orbit array, without applying any scale factor.
- * Note: This method packs data in 45 words to allow reuse of code from the SiRF raw data version.
- * See SiRF ICD (A.5 Message # 15: Ephemeris Data) for details of the arrangement.
- *
- * @param satIdx the satellite index in the gpsSatFrame
- * @param bom an array of broadcats orbit data containing the mantissa of each satellite ephemeris
- * @return true if data properly extracted (SV consistency in the channel data, version data consistency and receiver gives confidence on observables), false otherwise
- */
-bool GNSSdataFromGRD::extractGPSEphemeris(int satIdx, int (&bom)[8][4]) {
-    unsigned int navW[45];	//a place to pack message data as per MID 15 (see SiRF ICD)
-    unsigned int sv;
-    //pack 3 frames data as per MID 15 (see SiRF ICD)
-    for (int i=0; i<3; i++) {	//for each subframe index 0, 1, 2
-        for (int j=0; j<5; j++) { //for each 2 WORDs group
-            navW[i*15+j*3] = (gpsSatFrame[satIdx].gpsSatSubframes[i].words[j*2]>>8) & 0xFFFF;
-            navW[i*15+j*3+1] = ((gpsSatFrame[satIdx].gpsSatSubframes[i].words[j*2] & 0xFF)<<8) | ((gpsSatFrame[satIdx].gpsSatSubframes[i].words[j*2+1]>>16) & 0xFF);
-            navW[i*15+j*3+2] = gpsSatFrame[satIdx].gpsSatSubframes[i].words[j*2+1] & 0xFFFF;
-        }
-        //the exception is WORD1 (TLM word) of each subframe, whose data are not needed
-        navW[i*15] = (unsigned int) satIdx + 1;
-        navW[i*15+1] &= 0xFF;
-    }
-    //check for consistency in the existing data
-    sv = navW[0] & 0xFF;		//the SV identification
-    if (!((sv == (navW[15] & 0xFF)) && (sv == (navW[30] & 0xFF)))) {
-        plog->warning("Different SVs in the frame data");
-        return false;
-    }
-    if (satIdx+1 != sv) plog->warning("Receiver and message data do not match");
-    //check for version data consistency
-    unsigned int iodcLSB = navW[10] & 0xFF;
-    unsigned int iode1 = (navW[15+3]>>8) & 0xFF;
-    unsigned int iode2 = navW[30+13] & 0xFF;
-    if (!(iode1==iode2 && iode1==iodcLSB)) {
-        plog->warning("Different IODs:SV <" + to_string((unsigned long long) sv) +
-                      "> IODs <" + to_string((unsigned long long) iodcLSB) +
-                      "," + to_string((unsigned long long) iode1) +
-                      "," + to_string((unsigned long long) iode2) + ">");
-        return false;
-    }
-/*  TODO: to analyze include the following code for correctness
-	//check for SVhealth
-	unsigned int svHealth = (navW[4]>>10) & 0x3F;
-	if ((svHealth & 0x20) != 0) {
-		sprintf(errorBuff, "Wrong SV %2u health <%02hx>", sv, svHealth);
-		plog->info(string(errorBuff));
-		return false;
-	}
-*/
-    //fill bom extracting data according SiRF ICD (see A.5 Message # 15: Ephemeris Data)
-    //broadcast line 0
-    bom[0][0] = navW[11];	//T0C
-    bom[0][1] = getTwosComplement(((navW[13] & 0x00FF)<<14) | ((navW[14]>>2) & 0x3FFF), 22);	//Af0
-    bom[0][2] = getTwosComplement(((navW[12] & 0x00FF)<<8) | ((navW[13]>>8) & 0x00FF), 16);	//Af1
-    bom[0][3] = getTwosComplement((navW[12]>>8) & 0x00FF, 8);								//Af2
-    //broadcast line 1
-    bom[1][0] = iode1;	//IODE
-    bom[1][1] = getTwosComplement(((navW[15+3] & 0x00FF)<<8) | ((navW[15+4]>>8) & 0x00FF), 16);	//Crs
-    bom[1][2] = getTwosComplement(((navW[15+4] & 0x00FF)<<8) | ((navW[15+5]>>8) & 0x00FF), 16);	//Delta n
-    bom[1][3] = getTwosComplement(((navW[15+5] & 0x00FF)<<24) | ((navW[15+6] & 0xFFFF)<<8) | ((navW[15+7]>>8) & 0x00FF),32);//M0
-    //broadcast line 2
-    bom[2][0] = getTwosComplement(((navW[15+7] & 0x00FF)<<8) | ((navW[15+8]>>8) & 0x00FF), 16);			//Cuc
-    bom[2][1] = (((navW[15+8] & 0x00FF)<<24) | ((navW[15+9] & 0xFFFF)<<8) | ((navW[15+10]>>8) & 0x00FF));	//e
-    bom[2][2] = getTwosComplement(((navW[15+10] & 0x00FF)<<8) | ((navW[15+11]>>8) & 0x00FF), 16);		//Cus
-    bom[2][3] = ((navW[15+11] & 0x00FF)<<24) | ((navW[15+12] & 0xFFFF)<<8) | ((navW[15+13]>>8) & 0x00FF);	//sqrt(A)
-    //broadcast line 3
-    bom[3][0] = ((navW[15+13] & 0x00FF)<<8) | ((navW[15+14]>>8) & 0x00FF);	//Toe
-    bom[3][1] = getTwosComplement(navW[30+3], 16);						//Cic
-    bom[3][2] = getTwosComplement(((navW[30+4] & 0xFFFF)<<16) | (navW[30+5] & 0xFFFF), 32);	//OMEGA
-    bom[3][3] = getTwosComplement(navW[30+6], 16);						//CIS
-    //broadcast line 4
-    bom[4][0] = getTwosComplement(((navW[30+7] & 0xFFFF)<<16) | (navW[30+8] & 0xFFFF), 32);	//i0
-    bom[4][1] = getTwosComplement(navW[30+9], 16);											//Crc
-    bom[4][2] = getTwosComplement(((navW[30+10] & 0xFFFF)<<16) | (navW[30+11] & 0xFFFF), 32);	//w (omega)
-    bom[4][3] = getTwosComplement(((navW[30+12] & 0xFFFF)<<8) | ((navW[30+13]>>8) & 0x00FF), 24);//w dot
-    //broadcast line 5
-    bom[5][0] = getTwosComplement((navW[30+14]>>2) & 0x03FFF, 14);	//IDOT
-    bom[5][1] = (navW[3]>>4) & 0x0003;				//Codes on L2
-    bom[5][2] = ((navW[3]>>6) & 0x03FF) + 1024; 	//GPS week#
-    bom[5][3] = (navW[4]>>7) & 0x0001;				//L2P data flag
-    //broadcast line 6
-    bom[6][0] = navW[3] & 0x000F;			//SV accuracy
-    bom[6][1] = (navW[4]>>10) & 0x003F;	//SV health
-    bom[6][2] = getTwosComplement((navW[10]>>8) & 0x00FF, 8);//TGD
-    bom[6][3] = iodcLSB | (navW[4] & 0x0300);		//IODC
-    //broadcast line 7
-    bom[7][0] = (((navW[1] & 0x00FF)<<9) | ((navW[2]>>7) & 0x01FF)) * 600;	//the 17 MSB of the Zcount in HOW (W2) converted to sec and scaled by 100
-    bom[7][1] = (navW[15+14]>>7) & 0x0001;			//Fit flag
-    bom[7][2] = 0;		//Spare. Not used
-    bom[7][3] = iode2;	//Spare. Used for temporary store of IODE in subframe 3
-    return true;
-}
-
 /**extractGLOEphemeris extract satellite number, time tag, and ephemeris from the given navigation message string transmitted by GLONASS satellites.
  * The ephemeris extracted are store into a RINEX broadcast orbit like arrangement consisting of  8 lines with 3 ephemeris parameters each.
  * This method stores the mantissa of each satellite ephemeris into a broadcast orbit array (bom), without applying any scale factor.
@@ -942,45 +966,218 @@ bool GNSSdataFromGRD::extractGPSEphemeris(int satIdx, int (&bom)[8][4]) {
  * @param satIdx the satellite index
  * @param bom an array of broadcats orbit data containing the mantissa of each satellite ephemeris
  * @param slt the slot number extracted from navigation message
- * @return true if data properly extracted (SV consistency in the channel data, version data consistency and receiver gives confidence on observables), false otherwise
  */
-bool GNSSdataFromGRD::extractGLOEphemeris(int satIdx, int (&bom)[8][4], int& slt) {
-    //TODO confirm bit numbers, because from Android "...each string contains 85 data bits, including the checksum.
-    // These bits should be fit into 11 bytes, with MSB first (skip B86-B88)... "
-    //and correct bit numbers if neccesary. Current values are derived from SiRF & GLONASS ICD
-    slt = getBits(gloSatFrame[satIdx].gloSatStrings[3].words, 10, 5);	//slot number (n) in string 4, bits 15-11
-    if ((slt < GLO_MINOSN) || (slt > GLO_MAXOSN)) {
-        plog->warning("50bps NAV ignored. In string 4 slot number out of range:" + to_string((long long) slt));
-        return false;
-    }
-    int n4 = getBits(gloSatFrame[satIdx].gloSatStrings[4].words, 31, 5);	//four-year interval number N4: bits 36-32 string 5
-    int nt = getBits(gloSatFrame[satIdx].gloSatStrings[3].words, 15, 11);	//day number NT: bits 26-16 string 4
-    int tb = getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 69, 7);	//time interval index tb: bits 76-70 string 2
+void GNSSdataFromGRD::extractGLOEphemeris(int satIdx, int (&bom)[8][4], int& slt) {
+    uint32_t *pstring1 = gloSatFrame[satIdx].gloSatStrings[0].words;
+    uint32_t *pstring2 = gloSatFrame[satIdx].gloSatStrings[1].words;
+    uint32_t *pstring3 = gloSatFrame[satIdx].gloSatStrings[2].words;
+    uint32_t *pstring4 = gloSatFrame[satIdx].gloSatStrings[3].words;
+    uint32_t *pstring5 = gloSatFrame[satIdx].gloSatStrings[4].words;
+    slt = getBits(pstring4, GLOL1CA_BIT(15), 5);	//slot number (n) in string 4, bits 15-11
+    int n4 = getBits(pstring5, GLOL1CA_BIT(36), 5);	//four-year interval number N4: bits 36-32 string 5
+    int nt = getBits(pstring4, GLOL1CA_BIT(26), 11);	//day number NT: bits 26-16 string 4
+    int tb = getBits(pstring2, GLOL1CA_BIT(76), 7);	//time interval index tb: bits 76-70 string 2
     tb *= 15*60;	//convert index to secs
-    unsigned int tk =  getBits(gloSatFrame[satIdx].gloSatStrings[0].words, 64, 12);	//Message frame time: bits 76-65 string 1
+    uint32_t tk =  getBits(pstring1, GLOL1CA_BIT(76), 12);	//Message frame time: bits 76-65 string 1
     int tkSec = (tk >> 7) *60*60;		//hours in tk to secs.
     tkSec += ((tk >> 1) & 0x3F) * 60;	//add min. in tk to secs.
     tkSec += (tk & 0x01) == 0? 0: 30;	//add sec. interval to secs.
     //convert frame time (in GLONASS time) to an UTC instant (use GPS ephemeris for convenience)
     double tTag = getSecsGPSEphe(1996 + (n4-1)*4, 1, nt, 0, 0, (float) tb) - 3*60*60;
     bom[0][0] = (int) tTag;													//Toc
-    bom[0][1] = - getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[3].words, 58, 22), 22);	//Clock bias TauN: bits 80-59 string 4
-    bom[0][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 68, 11), 11);	//Relative frequency bias GammaN: bits 79-69 string 3
+    bom[0][1] = -getSigned(getBits(pstring4, GLOL1CA_BIT(80), 22), 22);	//Clock bias TauN: bits 80-59 string 4
+    bom[0][2] = getSigned(getBits(pstring3, GLOL1CA_BIT(79), 11), 11);	    //Relative frequency bias GammaN: bits 79-69 string 3
     bom[0][3] = ((int) getGPStow(tTag) + 518400) % 604800;		//seconds from UTC week start (mon 00:00). Note that GPS week starts sun 00:00.
-    bom[1][0] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[0].words, 8, 27), 27);	//Satellite position, X: bits 35-9 string 1
-    bom[1][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[0].words, 40, 24), 24);	//Satellite velocity, X: bits 64-41 string 1
-    bom[1][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[0].words, 35, 5), 5);	//Satellite acceleration, X: bits 40-36 string 1
-    bom[1][3] = getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 77, 3);					//Satellite health Bn: bits 80-78 string 2
-    bom[2][0] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 8, 27), 27);	//Satellite position, Y: bits 35-9 string 2
-    bom[2][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 40, 24), 24);	//Satellite velocity, Y: bits 64-41 string 2
-    bom[2][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 35, 5), 5);	//Satellite acceleration, Y: bits 40-36 string 2
-    bom[2][3] = nAhnA[slt-1].hnA;										//Frequency number (-7 ... +13)
-    bom[3][0] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 8, 27), 27);	//Satellite position, Z: bits 35-9 string 3
-    bom[3][1] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 40, 24), 24);	//Satellite velocity, Z: bits 64-41 string 3
-    bom[3][2] = getSigned(getBits(gloSatFrame[satIdx].gloSatStrings[2].words, 35, 5), 5);	//Satellite acceleration, Z: bits 40-36 string 3
-    bom[3][3] = getBits(gloSatFrame[satIdx].gloSatStrings[1].words, 48, 5);			//Age of oper. information (days) (E): bits 53-49 string 2
+    bom[1][0] = getSigned(getBits(pstring1, GLOL1CA_BIT(35), 27), 27);	//Satellite position, X: bits 35-9 string 1
+    bom[1][1] = getSigned(getBits(pstring1, GLOL1CA_BIT(64), 24), 24);	//Satellite velocity, X: bits 64-41 string 1
+    bom[1][2] = getSigned(getBits(pstring1, GLOL1CA_BIT(40), 5), 5);	//Satellite acceleration, X: bits 40-36 string 1
+    bom[1][3] = getBits(pstring2, GLOL1CA_BIT(80), 3);					//Satellite health Bn: bits 80-78 string 2
+    bom[2][0] = getSigned(getBits(pstring2, GLOL1CA_BIT(35), 27), 27);	//Satellite position, Y: bits 35-9 string 2
+    bom[2][1] = getSigned(getBits(pstring2, GLOL1CA_BIT(64), 24), 24);	//Satellite velocity, Y: bits 64-41 string 2
+    bom[2][2] = getSigned(getBits(pstring2, GLOL1CA_BIT(40), 5), 5);	//Satellite acceleration, Y: bits 40-36 string 2
+    bom[2][3] = nAhnA[slt-1].hnA;										    //Frequency number (-7 ... +13)
+    bom[3][0] = getSigned(getBits(pstring3, GLOL1CA_BIT(35), 27), 27);	//Satellite position, Z: bits 35-9 string 3
+    bom[3][1] = getSigned(getBits(pstring3, GLOL1CA_BIT(64), 24), 24);	//Satellite velocity, Z: bits 64-41 string 3
+    bom[3][2] = getSigned(getBits(pstring3, GLOL1CA_BIT(40), 5), 5);	//Satellite acceleration, Z: bits 40-36 string 3
+    bom[3][3] = getBits(pstring4, GLOL1CA_BIT(53), 5);			//Age of oper. information (days) (En): bits 53-49 string 4
+    //TODO extract iono and clock corrections, and leap seconds adding lines to bom
+}
+#undef GLOL1CA_BIT
+
+/**bitPosFromGLOICD determines the bit position in a bit stream of unsignet int used to store a Glonass string.
+ * Each Glonass 85 bits string is stored in an array of 3 uint32_t having sizeof(int)*8 bits each.
+ * This function computes the bit position in the array (considered as a bit stream) of a given GLO ICD bit position.
+ *
+ * @param bitPosICD the position stated in the GLO ICD, in the range 1 to 85
+ * @return the bit position in the bit stream of unsigned ints containing the subframe bits
+ */
+int GNSSdataFromGRD::bitPosFromGLOICD(int bitPosICD) {
+    return 85 - bitPosICD;
+}
+
+//methods for GALILEO I/NAV message processing
+//a macro to get bit position in a message word (0 to 127) from what is bit position stated in the Galileo ICD
+#define GALIN_BIT(BITNUMBER) BITNUMBER
+/**collectGALINepochNav gets GALILEO I/NAV navigation data from a raw message and store them into satellite ephemeris
+ * (bradcast orbit data) of the RinexData object.
+ * Only have interest words: 1,2,3,4 & 5
+ *
+ * @param rinex	the class instance where data are stored
+ * @param msgType the true type of the message
+ * @return true if data properly extracted (data correctly read, correct parity status, relevant subframe), false otherwise
+ */
+bool GNSSdataFromGRD::collectGALINEpochNav(RinexData &rinex, int msgType) {
+    int status;     //the status of the navigation message:0=UNKNOWN, 1=PARITY PASSED, 2=REBUILT
+    char constId;   //the constellation identifier this satellite belongs
+    int satNum;		//the satellite number this navigation message belongssatt
+    int sfrmNum;    //navigation message subframe number
+    int wordNum;    //navigation message page number
+    int msgSize;    //the message size in bytes
+    //int n;          //aux var
+    //For Galileo I/NAV, each page contains 2 page parts, even and odd, with a total of 2x114 = 228 bits, (sync & tail excluded)
+    // that should be fit into 29 bytes, with MSB first (skip B229-B232).
+    unsigned int msg[GALINAV_MSGSIZE];  //to store GAL I/NAV message bytes from receiver
+    int bom[8][4];		//a RINEX broadcats orbit like arrangement for satellite ephemeris mantissa
+    double bo[8][4];	//the RINEX broadcats orbit arrangement for satellite ephemeris
+    double tTag;		//the time tag for ephemeris data
+    string logmsg = getMsgDescription(msgType);
+    try {
+        //read MT_SATNAV_GPS_L1_CA message data
+        if (fscanf(grdFile, "%d;%c%d;%d;%d;%d", &status, &constId, &satNum, &wordNum, &sfrmNum, &msgSize) != 6
+            || status < 1
+            || constId != 'E'
+            || msgSize != GALINAV_MSGSIZE) {
+            plog->warning(logmsg + LOG_MSG_INMP + LOG_MSG_OSIZ);
+            return false;
+        }
+        logmsg += " sat:" + to_string(satNum)+ " word:" + to_string(wordNum) + " subfr:" + to_string(sfrmNum);
+        if (satNum < GAL_MINPRN || satNum > GAL_MAXPRN) {
+            plog->warning(logmsg + LOG_MSG_INSV + to_string(satNum));
+            return false;
+        }
+        if (wordNum < 1 || wordNum > GALINAV_MAXWORDS) {
+            plog->finer(logmsg + LOG_MSG_NAVIG);
+            return false;
+        }
+        memset(msg, 0, sizeof(msg));
+        for (int i = 0; i < GALINAV_MSGSIZE; ++i) {
+            if (fscanf(grdFile,";%X", msg+i) != 1) {
+                plog->warning(logmsg + LOG_MSG_ERRO + LOG_MSG_INMP);
+                return false;
+            }
+        }
+        GALINAVFrameData *psatFrame = &galInavSatFrame[satNum - 1];
+        GALINAVpageData *pmsgWord = &psatFrame->pageWord[wordNum - 1];
+        //pack message bytes (a page) into the GAL message word
+        //TODO verify the approach used: it works with Xiaomi MI8, but not tested with other devices
+        //TODO according Android classes doc. tail is removed, but MI8 only removes the one in the even page
+        //the 29 bytes contain the following bits:
+        //  1 e/o + 1 pt + 112 data 1/2 + 6 tail (?) + 1 e/o + 1 pt + 16 data 2/2 + 64 reserved 1 + 24 CRC + 8 reserved ...
+        //and we have to extract data 1/2 and data 2/2 into a contiguos 128 bit stream:
+        //1st; skip first 1 e/o + 1 pt and extract the following 32 x 4 = 128 bits (it is repetitive)
+        for (int i = 0, n=0; i < GALINAV_DATAW; i++, n+=4) {
+            pmsgWord->data[i] = msg[n]<<26 | msg[n+1]<<18 | msg[n+2]<<10 | msg[n+3]<<2 | msg[n+4]>>6;
+        }
+        //2nd: but we have to remove the tail +1 e/o + 1 pt between data 1/2 and data 2/2 and add the new 6 bits from msg[16] and 2 from msg[17]
+        pmsgWord->data[GALINAV_DATAW-1] = (pmsgWord->data[GALINAV_DATAW-1] & 0xFFFF0000)
+                                          | ((pmsgWord->data[GALINAV_DATAW-1] & 0x000000FF) << 8)
+                                          | ((msg[16] & 0x3F) << 2)
+                                          | ((msg[17] & 0xC0) >> 6);
+        //TODO verify CRC?
+        psatFrame->hasData = true;
+        pmsgWord->hasData = true;
+        logmsg += " Word saved.";
+        //check if all ephemerides have been received, that is:
+        //-message word types 1, 2, 3, 4 & 5 have data
+        //-and data in words 1 to 4 have the same IODnav (Issue Of Data)
+        bool allRec = psatFrame->hasData;
+        for (int i = 0; i < GALINAV_MAXWORDS; ++i) allRec = allRec && psatFrame->pageWord[i].hasData;
+        if (allRec) logmsg += " Frame completed";
+        //verify IOD of data received
+        uint32_t iodNav = getBits(psatFrame->pageWord[0].data, GALIN_BIT(6), 10);
+        for (int i = 1; i < GALINAV_MAXWORDS-1; i++) {
+            allRec = allRec && (iodNav == getBits(psatFrame->pageWord[i].data, GALIN_BIT(6), 10));
+        }
+        if (allRec) {
+            //all ephemerides have been already received; extract and store them into the RINEX object
+            logmsg += " and IODs match.";
+            plog->fine(logmsg);
+            extractGALINEphemeris(satNum - 1, bom);
+            tTag = scaleGALEphemeris(bom, bo);
+            rinex.saveNavData('E', satNum, bo, tTag);
+        }
+        else plog->fine(logmsg);
+    } catch (int error) {
+        plog->severe(logmsg + LOG_MSG_ERRO + to_string((long long) error));
+        return false;
+    }
     return true;
 }
+
+/**extractGALINEphemeris extract satellite number and ephemeris from the given navigation message transmitted by GPS satellites.
+ * <p>The navigation message data of interest here have been stored in GALILEO frame (galINAVSatFrame) message words.
+ * Ephemeris are extracted from mesage words (see Galileo OS ICD for bit arrangement) and stored into a RINEX broadcast orbit like (bom)
+ * arrangement consisting of 8 lines with 4 ephemeris parameters each.
+ * <p>This method stores the MANTISSA of each satellite ephemeris into a broadcast orbit array, without applying any scale factor.
+ *
+ * @param satIdx the satellite index in the gpsSatFrame
+ * @param bom an array of broadcats orbit data containing the mantissa of each satellite ephemeris
+ */
+void GNSSdataFromGRD::extractGALINEphemeris(int satIdx, int (&bom)[8][4]) {
+    //use pointers for convenience
+    GALINAVFrameData *pframe = &galInavSatFrame[satIdx];
+    uint32_t *pw1data = pframe->pageWord[0].data;
+    uint32_t *pw2data = pframe->pageWord[1].data;
+    uint32_t *pw3data = pframe->pageWord[2].data;
+    uint32_t *pw4data = pframe->pageWord[3].data;
+    uint32_t *pw5data = pframe->pageWord[4].data;
+    //fill bom extracting data according GAL I/NAV ICD
+    //broadcast line 0
+    bom[0][0] = getBits(pw4data, GALIN_BIT(54), 14);                         //T0C
+    bom[0][1] = getTwosComplement(getBits(pw4data, GALIN_BIT(68), 31), 31);  //Af0
+    bom[0][2] = getTwosComplement(getBits(pw4data, GALIN_BIT(99), 21), 21);  //Af1
+    bom[0][3] = getTwosComplement(getBits(pw4data, GALIN_BIT(120), 6), 6);   //Af2
+    //broadcast line 1
+    bom[1][0] = getBits(pw1data, GALIN_BIT(6), 10);	                        //IODnav
+    bom[1][1] = getTwosComplement(getBits(pw3data, GALIN_BIT(104), 16), 16);	//Crs
+    bom[1][2] = getTwosComplement(getBits(pw3data, GALIN_BIT(40), 16), 16);	//Delta n
+    bom[1][3] = getTwosComplement(getBits(pw1data, GALIN_BIT(30), 32),32);   //M0
+    //broadcast line 2
+    bom[2][0] = getTwosComplement(getBits(pw3data, GALIN_BIT(56), 16), 16);	//Cuc
+    bom[2][1] = getBits(pw1data, GALIN_BIT(62), 32);                           //e
+    bom[2][2] = getTwosComplement(getBits(pw3data, GALIN_BIT(72), 16), 16);	//Cus
+    bom[2][3] = getBits(pw1data, GALIN_BIT(94), 32);   	                    //sqrt(A)
+    //broadcast line 3
+    bom[3][0] = getBits(pw1data, GALIN_BIT(16), 14);       	                //Toe
+    bom[3][1] = getTwosComplement(getBits(pw4data, GALIN_BIT(22), 16), 16);	//Cic
+    bom[3][2] = getTwosComplement(getBits(pw2data, GALIN_BIT(16), 32), 32);  //OMEGA0
+    bom[3][3] = getTwosComplement(getBits(pw4data, GALIN_BIT(38), 16), 16);	//CIS
+    //broadcast line 4
+    bom[4][0] = getTwosComplement(getBits(pw2data, GALIN_BIT(48), 32), 32);  //i0
+    bom[4][1] = getTwosComplement(getBits(pw3data, GALIN_BIT(88), 16), 16);	//Crc
+    bom[4][2] = getTwosComplement(getBits(pw2data, GALIN_BIT(80), 32), 32);  //w (omega)
+    bom[4][3] = getTwosComplement(getBits(pw3data, GALIN_BIT(16), 24), 24);  //w dot
+    //broadcast line 5
+    bom[5][0] = getTwosComplement(getBits(pw2data, GALIN_BIT(112), 14), 14);	//IDOT
+    bom[5][1] = 0xA0400000;				        //data source: assumed non-exclusive and for E5b, E1
+    bom[5][2] = getBits(pw5data, GALIN_BIT(73), 12) + 1024;  //GAL week# (GST week + roll over of GPS
+    bom[5][3] = 0x0;                                				//spare
+    //broadcast line 6
+    bom[6][0] = getBits(pw3data, GALIN_BIT(120), 8);			    //SISA
+    bom[6][1] = (getBits(pw5data, GALIN_BIT(72), 1) << 31)   //SV health: E1B DVS
+                | (getBits(pw5data, GALIN_BIT(69), 2) << 29)	//SV health: E1B HS
+                | (getBits(pw5data, GALIN_BIT(71), 1) << 25) //SV health: E5b DVS
+                | (getBits(pw5data, GALIN_BIT(69), 2) << 23);//SV health: E5b HS
+    bom[6][2] = getTwosComplement(getBits(pw5data, GALIN_BIT(47), 10), 10);    //BGD E5a / E1
+    bom[6][3] = getTwosComplement(getBits(pw5data, GALIN_BIT(57), 10), 10);    //BGD E5b / E1
+    //broadcast line 7
+    bom[7][0] = getBits(pw5data, GALIN_BIT(85), 20);	//Time of message (taken from GST)
+    bom[7][1] = 0x0;			            //spare
+    bom[7][2] = 0x0;			            //spare
+    bom[7][3] = 0x0;			            //spare
+    //TODO extract iono and clock corrections, and leap seconds adding lines to bom
+}
+#undef GALIN_BIT
 
 /**scaleGPSEphemeris apply scale factors to satellite ephemeris mantissas to obtain true satellite ephemirs stored
  * in RINEX broadcast orbit like arrangements.
@@ -997,6 +1194,7 @@ double GNSSdataFromGRD::scaleGPSEphemeris(int (&bom)[8][4], double (&bo)[8][4]) 
     int iodc = bom[6][3];
     for(int i=0; i<8; i++) {
         for(int j=0; j<4; j++) {
+            //TODO optimize this code removing ifs
             if (i==7 && j==1) {		//compute the Fit Interval from fit flag
                 if (bom[7][1] == 0) aDouble = 4.0;
                 else if (iodc>=240 && iodc<=247) aDouble = 8.0;
@@ -1015,7 +1213,40 @@ double GNSSdataFromGRD::scaleGPSEphemeris(int (&bom)[8][4], double (&bo)[8][4]) 
     }
     return getSecsGPSEphe (
             bom[5][2],	//GPS week#
-            bom[0][0] * GPS_SCALEFACTOR[0][0] ); //T0C
+            bo[0][0]);  //T0c
+}
+
+/**scaleGALEphemeris apply scale factors to satellite ephemeris mantissas to obtain true satellite ephemirs stored
+ * in RINEX broadcast orbit like arrangements.
+ * The given navigation data are the mantissa perameters as transmitted in the Galileo I/NAV navigation message, that shall be
+ * converted to the true values applying the corresponding scale factor before being used.
+ * Also a time tag is obtained from the week and time of week inside the satellite ephemeris.
+ *
+ * @param bom the mantissas of orbital parameters data arranged as per RINEX broadcast orbit into eight lines with four parameters each
+ * @param bo the orbital parameters data arranged as per RINEX broadcast orbit into eight lines with four parameters each
+ * @return the time tag of the satellite ephemeris
+ */
+double GNSSdataFromGRD::scaleGALEphemeris(int (&bom)[8][4], double (&bo)[8][4]) {
+    for(int i=0; i<8; i++) {
+        for(int j=0; j<4; j++) {
+            if (i==2 && (j==1 || j==3)) {	//e and sqrt(A) are 32 bits unsigned
+                bo[2][j] = ((unsigned int) bom[2][j]) * GAL_SCALEFACTOR[2][j];
+            } else bo[i][j] = bom[i][j] * GAL_SCALEFACTOR[i][j]; //the rest as signed
+        }
+    }
+    //compute SISA value
+    double value;
+    int sisa = bom[6][0];
+    if (sisa < 50) value = 0.01 * sisa;
+    else if (sisa < 75) value = 0.5 + 0.02 * sisa;
+    else if (sisa < 100) value = 1.0 + 0.04 * (sisa - 75);
+    else if (sisa < 125) value = 2.0 + 0.16 * (sisa - 100);
+    else if (sisa < 255) value = 0.0;   //spare
+    else value = -1.0;
+    bo[6][0] = value;
+    return getSecsGPSEphe (
+            bom[5][2],	//now GPS week#
+            bo[0][0]);  //T0c
 }
 
 /**scaleGLOEphemeris apply scale factors to satellite ephemeris mantissas to obtain true satellite ephemirs stored in RINEX broadcast orbit like arrangements.
@@ -1049,9 +1280,9 @@ int GNSSdataFromGRD::gloSatIdx(int stn) {
     return GLO_MAXSATELLITES;
 }
 
-/**addSignal adds the given signal (1C,2C,1A,1S,1L,1X, etc) to the given system in the GNSSdataFromGRD object.
- * <p>If the given system does not exist in the RinexData structure, it is added.
- * <p>If the given signal does not exist in the given system, it is added to this system.
+/**addSignal adds the given signal (1C,2C,1A,1S,1L,1X, etc) to the given system in the list of GNSSsystem.
+ * <p>If the given system does not exist in the list, it is added.
+ * <p>If the given signal does not exist in the given system, it is added.
  *
  * @param sys is the system identification
  * @param sgnl is the signal name to be added
@@ -1133,8 +1364,7 @@ void GNSSdataFromGRD::skipToEOM() {
  * @param y is the output ECEF y coordinate in meters
  * @param z is the output ECEF z coordinate in meters
  */
-void GNSSdataFromGRD::llaTOxyz( const double lat, const double lon, const double alt,
-                                double &x, double &y, double &z) {
+void GNSSdataFromGRD::llaTOxyz( const double lat, const double lon, const double alt, double &x, double &y, double &z) {
     double sinlat = sin(lat);
     double coslat = cos(lat);
     //rn is the radius of curvature in the prime vertical
@@ -1381,9 +1611,9 @@ int GNSSdataFromGRD::gloNumFromFCN(int satNum, char band, double carrFrq, bool u
     if (satNum > GLO_MAXSATELLITES) satNum -= GLO_FCN2OSN;
     if (satNum >= GLO_MINOSN && satNum <= GLO_MAXSATELLITES) {
         if (updTbl) {
-            if (band == '1') {
-                bandFrq = GLO_BAND_FRQ1;
-                slotFrq = GLO_SLOT_FRQ1;
+            if (band == '2') {
+                bandFrq = GLO_BAND_FRQ2;
+                slotFrq = GLO_SLOT_FRQ2;
             } else {
                 bandFrq = GLO_BAND_FRQ1;
                 slotFrq = GLO_SLOT_FRQ1;
@@ -1395,4 +1625,26 @@ int GNSSdataFromGRD::gloNumFromFCN(int satNum, char band, double carrFrq, bool u
         satNum = nAhnA[satNum -1].nA;
     } else satNum = 0;
     return satNum;
+}
+
+/*getBits gets a number of bits starting at a given position of the bits stream passed.
+ * The bit stream is an array of uint32_t words, being bit position 0 of the stream the bit 0 of word 0 (the left most),
+ * position 1 of the stream the bit 1 of word 0, and so on from left to right.
+ * The extracted bits are returned in a uint32_t with the right most bit extracted from the stream aligned to the
+ * right most bit of the word.
+ *
+ * @param stream the array of unsigned ints containing the bit stream
+ * @param bitpos the position in the stream of first bit to extract (first left bit)
+ * @param len the number of bits to extract. It shall not be greater than the number of bits in an uint32_t
+ * @return an uint32_t with the extracted bits aligned to the right
+ */
+uint32_t GNSSdataFromGRD::getBits(uint32_t *stream, int bitpos, int len) {
+    uint32_t bitMask;
+    uint32_t bits = 0;
+    for (int i = bitpos; i < bitpos + len; i++) {
+        bits = bits << 1;
+        bitMask = 0x01U << (31 - (i % 32));
+        if ((stream[i/32] & bitMask) != 0) bits |= 0x01;
+    }
+    return bits;
 }

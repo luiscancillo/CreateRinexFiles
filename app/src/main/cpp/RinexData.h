@@ -297,6 +297,9 @@ public:
 	bool setFilter(vector<string> selSat, vector<string> selObs);
 	bool filterObsData(bool removeNotPrt = false);
 	void clearObsData();
+	//TODO modify bo to include in bo[8] ionospheric corrections
+	//TODO modify bo to include in bo[9] time corrections
+	//TODO modify bo to include in bo[10] leap seconds
 	bool saveNavData(char sys, int sat, double bo[8][4], double tTag);
 	bool getNavData(char& sys, int &sat, double (&bo)[8][4], double &tTag, unsigned int index = 0);
 	bool filterNavData();

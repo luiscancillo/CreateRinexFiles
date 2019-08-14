@@ -28,7 +28,7 @@ const string LOG_FILENAME = "LogFile.txt";
 const string LOG_STARTMSG = "START GENERATE RINEX FILE";
 const string LOG_MSG_HDFROM = "RINEX header data from ";
 const string LOG_MSG_OBSFROM = "RINEX observation data from ";
-const string LOG_MSG_NAVFROM = "RINEX navigation data from ";
+const string LOG_MSG_NAVFROM = "RINEX navigation data from file";
 const string LOG_MSG_GENOBS = "Generate RINEX observation files";
 const string LOG_MSG_GENNAV = "Generate RINEX navigation files";
 const string LOG_MSG_IGNF = "Ignored file: ";
@@ -60,7 +60,7 @@ const unsigned int RET_ERR_WRINAV = 32;
 //int generateRINEXobs(vector<string> rnxPar, string inName, FILE* inFile, string rinexPath, Logger* plog);
 void extractRinexHeaderData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger* plog, vector<string> rnxPar, int inFileNum = 0, int inFileLast = 0);
 unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFullPath, string markName);
-unsigned int printOneNavFile(RinexData* prinex, vector<string> selSys, string outfilesFullPath, string markName);
+unsigned int printOneNavFile(RinexData* prinex, Logger* plog, vector<string> selSys, string outfilesFullPath, string markName);
 //bool printNavFile(RinexData*, string, string, Logger*);
 /**
  * generateRinexFilesJNI is the interface routine with the Java application toRINEX.
@@ -141,6 +141,7 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
                 extractRinexHeaderData(prinex, pgnssRaw, &log, vrinexParams, i, n - 1);   //set RINEX header records
                 prinex->setHdLnData(RinexData::COMM, RinexData::COMM, MSG_SRC_FILE + inNavFileNames[i]);
                 pgnssRaw->rewindInputGRD();
+                log.info(LOG_MSG_NAVFROM);
                 pgnssRaw->collectNavData(*prinex);
                 pgnssRaw->closeInputGRD();
             } else {
@@ -301,7 +302,7 @@ void extractRinexHeaderData(RinexData* prinex, GNSSdataFromGRD* pgnssRaw, Logger
         }
     }
     //set RINEX header records from data in raw data file
-    plog->info(LOG_MSG_HDFROM + "from file");
+    plog->info(LOG_MSG_HDFROM + "file");
     if(!pgnssRaw->collectHeaderData(*prinex, inFileNum, inFileLast)) {
         plog->warning("All, or some header data not acquired");
     }
@@ -336,10 +337,10 @@ unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFull
                 selSys.clear();
                 selObs.clear();
                 selSys.push_back(string(1, constellationToPrint));
-                retCode = retCode | printOneNavFile(prinex, selSys, outfilesFullPath, markName);
+                retCode = retCode | printOneNavFile(prinex, plog, selSys, outfilesFullPath, markName);
             }
         } else {
-            retCode = printOneNavFile(prinex, selSys, outfilesFullPath, markName);
+            retCode = printOneNavFile(prinex, plog, selSys, outfilesFullPath, markName);
         }
     } catch (string error) {
         plog->severe(error);
@@ -347,18 +348,24 @@ unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFull
     return retCode;
 }
 
-unsigned int printOneNavFile(RinexData* prinex, vector<string> selSys, string outfilesFullPath, string markName) {
+unsigned int printOneNavFile(RinexData* prinex, Logger* plog, vector<string> selSys, string outfilesFullPath, string markName) {
     vector<string> emptyVector;
     string outFileName;	//the output file name for RINEX files
     FILE* outFile;		//the RINEX file where data will be printed
+    unsigned int retValue = 0;
     prinex->setFilter(selSys, emptyVector);
     if (selSys.size() != 0) markName = selSys[0] + markName;
     outFileName = prinex->getNavFileName(markName);
     if ((outFile = fopen((outfilesFullPath + outFileName).c_str(), "w")) != NULL) {
-        prinex->printNavHeader(outFile);
-        prinex->printNavEpochs(outFile);
+        try {
+            prinex->printNavHeader(outFile);
+            prinex->printNavEpochs(outFile);
+        } catch (string error) {
+            plog->severe(error);
+            retValue = RET_ERR_WRINAV;
+        }
         fclose(outFile);
-        return 0;
     }
-    return RET_ERR_CRENAV;
+    else retValue = RET_ERR_CRENAV;
+    return retValue;
 }

@@ -39,7 +39,7 @@ bool isBlank (char* buffer, int n) {
  * @param buffer the text buffer where calendar data are placed
  * @param bufferSize of the text buffer in bytes
  * @param fmtYtoM the format to be used for year, month, day, hour and minute (all int), as per strftime
- * @param fmtSec the format to be used for seconds (a double), as per sprintf
+ * @param fmtSec the format to be used for seconds (a double), as per sprintf. If null, it is not used to print seconds.
  * @param week the GPS week from 6/1/1980
  * @param tow the GPS time of week, or seconds from the beginning of the week
  */
@@ -60,9 +60,11 @@ void formatGPStime (char* buffer, int bufferSize, const char* fmtYtoM, const cha
     mktime(&gpsEphe);
     //format data
     strftime (buffer, bufferSize, fmtYtoM, &gpsEphe);
-    string yTOm = string(buffer);
-    string fmt = "%s" + string(fmtSec);
-    sprintf(buffer, fmt.c_str(), yTOm.c_str(), ((double) gpsEphe.tm_sec + modTow));
+    if ((*fmtSec) != 0) {
+        string yTOm = string(buffer);
+        string fmt = "%s" + string(fmtSec);
+        sprintf(buffer, fmt.c_str(), yTOm.c_str(), ((double) gpsEphe.tm_sec + modTow));
+    }
 }
 
 /**formatLocalTime gives text calendar data of local time using the format provided (as per strftime).
@@ -219,39 +221,39 @@ string strToUpper(string strToConvert) {
 
 /**getTwosComplement converts a two's complement representation from a given number of bits to 32 bits.
  * Number is an integer containing a bit stream of nbits length which represents a nbits integer in two's complement, that is:
- * - if number is in the range 0 to 2^(nbits-1) is positive. Its value in a 32 bits representation is the same.
+ * - if number is in the range 0 to 2^(nbits-1) is positive. Its value in a sizeof(int)*8 (usually 32) bits representation is the same.
  * - if number is in the range 2^(nbits-1) to 2^(nbits)-1, is negative and must be converted subtracting 2^(nbits)
  *
- * @param number the 32 bits pattern with the number to be interpreted
- * @param nbits	the number of significative bits in the pattern
- * @return the value of the number (its 32 bits representation)
+ * @param number the bit pattern with the number to be interpreted
+ * @param nbits	the number of significant bits in the pattern, Shall be equal or smaller than the number of bits in an int
+ * @return the value of the number (its int representation)
  */
-int getTwosComplement(unsigned int number, unsigned int nbits) {
+int getTwosComplement(unsigned int number, int nbits) {
     int value = number;
-    if (nbits >= 32) return value;					//the conversion is imposible or not necessary
-    if (number < ((unsigned int) 1 << (nbits-1))) return value;	//the number is posive, it do not need conversion
+    if (nbits >= sizeof(number)*8) return value;					//the conversion is imposible or not necessary
+    if (number < ((unsigned int) 1 << (nbits-1))) return value;	    //the number is posive, it do not need conversion
     return value - (1 << nbits);
 }
 
 /**getSigned converts a signed representation from a given number of bits to standard 32 bits signed representation (two's complement).
  * Number is an integer containing a bit stream of nbits length which represents a nbits signed integer, that is:
- * - if the most significant bit is 0, the number is positive. Its value in a 32 bits representation is the same.
- * - if the most significant bit is 1, the number is negative and must be converted to standard negative number of 32 bits
+ * - if the most significant bit is 0, the number is positive. Its value in a sizeof(int)*8 (usually 32) bits representation is the same.
+ * - if the most significant bit is 1, the number is negative and must be converted to standard int negative number
  *
- * @param number the 32 bits pattern with the number to be interpreted
+ * @param number the bits pattern with the number to be interpreted
  * @param nbits	the number of significative bits in the pattern
- * @return the value of the number (its 32 bits representation)
+ * @return the value of the number (its int representation)
  */
 int getSigned(unsigned int number, int nbits) {
     unsigned int signMask;
     int value = number;
-    if ((nbits <= 32) && (nbits > 0)) {		//the conversion is possible
-        signMask = 1 << (nbits-1);
-        if ((number & signMask) != 0) value = - (int) (number - signMask); //the number is negative
+    if ((nbits <= sizeof(number)*8) && (nbits > 0)) {		//the conversion is possible
+        signMask =  0x01U << (nbits-1);
+        if ((number & signMask) != 0) value = - (int)(number & ~signMask); //the number is negative
     }
     return value;
 }
-
+//TODO the following funtion shall be rewitten to be indepedent of sizeof(int), assumed here 32 bits.
 /*reverseWord swap LSB given bits in the given word
  *
  * @param wordToReverse	a 32 bits word containing the bits to reverse
@@ -260,30 +262,11 @@ int getSigned(unsigned int number, int nbits) {
 */
 unsigned int reverseWord(unsigned int wordToReverse, int nBits) {
     unsigned int reversed = 0;
-    int shifts = nBits;
-    while (shifts > 0) {
+    while (nBits > 0) {
         reversed <<= 1;
         reversed |= wordToReverse & 0x00000001;
         wordToReverse >>= 1;
-        shifts--;
+        nBits--;
     }
     return reversed;
-}
-
-/*getBits gets a number of bits starting at a given position of the bits stream passed.
-*The bit stream is an array of 32 bits words, being bit position 0 of the stream the bit 0 of word 0,
-*position 1 of the stream the bit 1 of word 0, and so on
-*The extracted bits are returned in a 32 bits word.
-*
- * @param stream the array of 32 bits words containing the bit stream
- * @param bitpos the position in the stream of the LSB to extract (bitpos = 0 is the position of the first bit)
- * @param len the number of bits to extract (from bitpos to bitpos+len-1). It shall be: 32 >= len >= 0
- * @return a 32 bits word with extracted bits, with stream bit bitpos in bit position 0 of this word
- */
-unsigned int getBits(unsigned int *stream, int bitpos, int len) {
-    unsigned int bits = 0;
-    for (int i=bitpos+len-1; i>=bitpos; i--) {
-        bits = (bits << 1) | ((stream[i/32] >> i%32) & 0x01);
-    }
-    return bits;
 }

@@ -1895,7 +1895,7 @@ void RinexData::printNavHeader(FILE* out) {
 	///Before printing, set VERSION data record which depends on the version to be printed.
 	///<p>Note that in RINEX V3.02 a navigation file can include ephemeris from several navigation systems,
 	/// but in V2.10 a navigation file can include data for only one system.
-	const string msgNotNav("Cannot generate navigation file for system ");
+	const string msgNotNav("No system selected to generate navigation file");
 	int n = 0;
 	if (version == VTBD) version = inFileVer;
 	switch (version) {	//version to print
@@ -1910,12 +1910,12 @@ void RinexData::printNavHeader(FILE* out) {
 			 			case 'G': fileType = 'N'; break;	//GPS nav
 			 			case 'R': fileType = 'G'; break;	//GLONASS nav
 			 			case 'S': fileType = 'H'; break;	//SBAS nav
-			 			default : throw msgNotNav + string(1, it->system); break;
+			 			default : throw "In version 2.10  cannot generate navigation file for system " + string(1, it->system); break;
 			 		}
 			 		break;
 			 	}
 			}
-			if (sysToPrintId == 0) throw msgNotNav + "UNSELECTED";
+			if (sysToPrintId == 0) throw msgNotNav;
 			break;
 		case V302:
 		 	fileType = 'N';
@@ -1926,7 +1926,7 @@ void RinexData::printNavHeader(FILE* out) {
 					n++;
 				}
 			//if more than one selected, set Mixed value
-			if (n == 0) throw msgNotNav + "UNSELECTED";
+			if (n == 0) throw msgNotNav;
 		 	else if (n > 1) sysToPrintId = 'M';
 			break;
 		default:
@@ -1964,6 +1964,7 @@ void RinexData::printNavEpochs(FILE* out) {
 	char timeBuffer[80];
 	int nBroadcastOrbits, nEphemeris;
 	const char* timeFormat;
+	const char* secondsFormat;
 	int lineStartSpaces;
 	vector<SatNavData>::iterator it;
 
@@ -1976,10 +1977,12 @@ void RinexData::printNavEpochs(FILE* out) {
 	switch (version) {
 	case V210:
 		timeFormat = "%y %m %d %H %M";
+		secondsFormat = " %4.1f";
 		lineStartSpaces = 3;
 		break;
 	case V302:
-		timeFormat = "%Y %m %d %H %M";
+		timeFormat = "%Y %m %d %H %M %S";
+		secondsFormat = "";
 		lineStartSpaces = 4;
 		break;
 	default:
@@ -1994,7 +1997,7 @@ void RinexData::printNavEpochs(FILE* out) {
 	    if (isSatSelected(systemIndex(it->systemId), it->satellite)) {
             plog->finest(msgNavEpochPrn + string(1, it->systemId) + msgComma + to_string(it->satellite));
             //print epoch first line
-            formatGPStime (timeBuffer, sizeof timeBuffer, timeFormat, " %4.1f", getGPSweek(it->navTimeTag), getGPStow(it->navTimeTag));
+            formatGPStime (timeBuffer, sizeof timeBuffer, timeFormat, secondsFormat, getGPSweek(it->navTimeTag), getGPStow(it->navTimeTag));
             switch (version) {	//print satellite and epoch time
                 case V210:
                     fprintf(out, "%02d %s", it->satellite, timeBuffer);

@@ -37,8 +37,7 @@ void setWeekTow (int year, int month, int day, int hour, int min, double sec, in
 double getSecsGPSEphe (int year, int month, int day, int hour, int min, float sec); //compute instant in seconds from the GPS ephemeris (6/1/1980) to a given date and time
 double getSecsGPSEphe (int week, double tow); //compute instant seconds from the GPS ephemeris (6/1/1980) to a given GPS time (week and tow)
 string strToUpper(string strToConvert);
-int getTwosComplement(unsigned int number, unsigned int nbits);
+int getTwosComplement(unsigned int number, int nbits);
 int getSigned(unsigned int number, int nbits);
 unsigned int reverseWord(unsigned int wordToReverse, int nBits=32);
-unsigned int getBits(unsigned int *stream, int bitpos, int len);
 #endif

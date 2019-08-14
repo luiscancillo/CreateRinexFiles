@@ -161,17 +161,20 @@ const string LOG_MSG_NONI("SATOBS record in NAV file");
 const string LOG_MSG_ERRO("Error reading ORD: ");
 const string LOG_MSG_INVM(" ignored invalid measurements");
 const string LOG_MSG_UNK(" ignored unknown measurements or GLO FCN");
-const string LOG_MSG_INMP("Incorrect nav message parameters");
+const string LOG_MSG_INMP("Invalid nav message parameters");
+const string LOG_MSG_INSV("Invalid nav message satellite ");
 const string LOG_MSG_OSIZ(" or size");
 const string LOG_MSG_NAVIG(". Ignored");
 const string LOG_MSG_UNKSELSYS("Unknown selected sys ");
+const string LOG_MSG_SATDIF(" Embedded sat num differs: ");
+const string LOG_MSG_WTDIF(" Embedded word type differs: ");
 const string MSG_SPACE(" ");
 const string MSG_COMMA(", ");
 const string MSG_SLASH("/");
 const string MSG_COLON(": ");
 const string MSG_NOT_IMPL("NOT IMPLEMENTED");
 //const string defaultSiteName = "PNT_";
-///GPS constants related to navigation messages
+///GPS definitions related to navigation messages
 #define GPS_L1_CA_MSGSIZE 40
 #define GPS_SUBFRWORDS 10
 #define GPS_MAXSUBFRS 5
@@ -179,7 +182,7 @@ const string MSG_NOT_IMPL("NOT IMPLEMENTED");
 #define GPS_MINPRN 1
 #define GPS_MAXPRN 32
 #define GPS_MAXSATELLITES 32
-///GLONASS constants related to navigation messages
+///GLONASS definitions related to navigation messages
 //Note: GLO_STRWORDS * 4 shall be > GLO_L1_CA_MSGSIZE
 #define GLO_L1_CA_MSGSIZE 11
 #define GLO_STRWORDS 3
@@ -203,7 +206,16 @@ const double GLO_SLOT_FRQ2 = 0.4375; //L2 frequency factor frq = 1246 + fcn * GL
 //TBD
 ///GALILEO constants related to navigation message
 //GALILEO prn are in the range 1-36
-//TBD
+//For Galileo I/NAV, each page contains 2 page parts, even and odd, with a total of 2x114 = 228 bits, (sync & tail excluded)
+// that should be fit into 29 bytes, with MSB first (skip B229-B232)
+#define GALINAV_MSGSIZE 29  //size of message passed by Android
+//the 228 bits are: 1 e/o + 1 pt + 112 data 1/2 + 1 e/o + 1 pt + 16 data 2/2 + 64 reserved 1 + 24 CRC + 8 reserved 2
+#define GALINAV_DATAW 4     //size in 32 bit unsig. int to store the 128 bits of a message word
+#define GALINAV_MAXWORDS 5  //message type 1 to 5 of any I/NAV subframe contain ephemeris data
+//GAL prn are in the range 1-32
+#define GAL_MINPRN 1
+#define GAL_MAXPRN 36
+#define GAL_MAXSATELLITES 36
 ///BEIDOU constants related to navigation message
 //BEIDOU prn are in the range 1-37
 //TBD
@@ -274,7 +286,7 @@ private:
 	//Data structures to capture GLONASS navigation messages
 	struct GLOStrData {
 		bool hasData;
-		unsigned int words[GLO_STRWORDS];
+		uint32_t words[GLO_STRWORDS];
 	};
 	struct GLOFrameData {
 		bool hasData;
@@ -295,22 +307,41 @@ private:
     //TODO check if this varible shall be finally removed in Android
     //the carrier frequency number (Hn in Almanac strings 7, 9, 11, 13, 15), or computed from observationa
     //	int frqNum[GLO_MAXSATELLITES];
-    //Constant data used to convert GPS broadcast navigation data to "true" values
+    //Data structures to capture Galileo I/NAV navigation messages
+    struct GALINAVpageData {
+        bool hasData;
+        uint32_t data[GALINAV_DATAW];
+    };
+    struct GALINAVFrameData {
+        bool hasData;
+        GALINAVpageData pageWord[GALINAV_MAXWORDS];
+    };
+    GALINAVFrameData galInavSatFrame[GAL_MAXSATELLITES];
+    //Constant data used to convert broadcast navigation data (contains only mantissas) to ephemris values
     double GPS_SCALEFACTOR[8][4];	//the scale factors to apply to GPS broadcast orbit data to obtain ephemeris (see GPS ICD)
-    double GPS_URA[16];			    //the User Range Accuracy values corresponding to URA index in the GPS SV broadcast data (see GPS ICD)
+    double GAL_SCALEFACTOR[8][4];	//the scale factors to apply to Galileo broadcast orbit data to obtain ephemeris (see Galileo OS ICD)
     double GLO_SCALEFACTOR[4][4];	//the scale factors to apply to GLONASS broadcast orbit data to obtain ephemeris (see GLONASS ICD)
+    double GPS_URA[16];			    //the User Range Accuracy values corresponding to URA index in the GPS SV broadcast data (see GPS ICD)
     //Logger
     Logger* plog;		//the place to send logging messages
     bool dynamicLog;	//true when created dynamically here, false when provided externally
 
+    //TODO modify bo & bom to include in bo[8] ionospheric corrections
+    //TODO modify bo & bom to include in bo[9] time corrections
+    //TODO modify bo & bom to include in bo[10] leap seconds
     void setInitValues();
-    bool extractGPSEphemeris(int sv, int (&bom)[8][4]);
+    void extractGPSEphemeris(int sv, int (&bom)[8][4]);
     double scaleGPSEphemeris(int (&bom)[8][4], double (&bo)[8][4]);
     bool collectGPSL1CAEpochNav(RinexData &rinex, int msgType);
-    bool collectGLOL1CAEpochNav(RinexData &rinex);
-    bool extractGLOEphemeris(int sat, int (&bom)[8][4], int& slot);
+    int bitPosFromGPSICD(int bitPosICD);
+    int bitPosFromGLOICD(int bitPosICD);
+    bool collectGLOL1CAEpochNav(RinexData &rinex, int msgType);
+    bool collectGALINEpochNav(RinexData &rinex, int msgType);
+	void extractGALINEphemeris(int sv, int (&bom)[8][4]);
+    double scaleGALEphemeris(int (&bom)[8][4], double (&bo)[8][4]);
+    void extractGLOEphemeris(int sat, int (&bom)[8][4], int& slot);
     double scaleGLOEphemeris(int (&bom)[8][4], double (&bo)[8][4]);
-	bool readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, unsigned int wd[]);
+	bool readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, uint32_t wd[]);
 	int gloSatIdx(int);
 
     bool addSignal(char system, string signal);
@@ -324,5 +355,6 @@ private:
     bool isCarrierPhInvalid (char constellId, char* signalId, int carrierPhaseState);
     bool isKnownMeasur(char constellId, int satNum, char frqId, char attribute);
     int gloNumFromFCN(int satNum, char band, double carrFrq, bool updTbl);
+    uint32_t getBits(uint32_t *stream, int bitpos, int len);
     };
 #endif
