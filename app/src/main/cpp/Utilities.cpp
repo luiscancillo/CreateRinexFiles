@@ -253,18 +253,18 @@ int getSigned(unsigned int number, int nbits) {
     }
     return value;
 }
-//TODO the following funtion shall be rewitten to be indepedent of sizeof(int), assumed here 32 bits.
-/*reverseWord swap LSB given bits in the given word
+/*reverseWord swap LSB given bits in the given word.
+ *It is assumed that nBits <= sizeof (unsigned int)
  *
- * @param wordToReverse	a 32 bits word containing the bits to reverse
+ * @param wordToReverse	word containing the bits to reverse
  * @param nBits	the number of bits in the word to reverse
- * @return a 32 bits word with the bits to reverse in reverse order
+ * @return a word with the bits to reverse in reverse order
 */
 unsigned int reverseWord(unsigned int wordToReverse, int nBits) {
     unsigned int reversed = 0;
     while (nBits > 0) {
         reversed <<= 1;
-        reversed |= wordToReverse & 0x00000001;
+        reversed |= wordToReverse & 0x01;
         wordToReverse >>= 1;
         nBits--;
     }

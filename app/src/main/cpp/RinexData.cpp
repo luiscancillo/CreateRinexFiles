@@ -1593,7 +1593,7 @@ void RinexData::clearObsData() {
  * @param bo the broadcast orbit data with the eight lines of RINEX navigation data with four parameters each
  * @return true if data have been saved, false otherwise
  */
-bool RinexData::saveNavData(char sys, int sat, double bo[8][4], double tTag) {
+bool RinexData::saveNavData(char sys, int sat, double bo[BO_MAXLINS][BO_MAXCOLS], double tTag) {
 	//check if this sat epoch data already exists: same satellite and time tag
 	string logmsg = msgEpheSat+ string(1,sys) + to_string(sat+1) + msgTimeTag + to_string(tTag);
 	for (vector<SatNavData>::iterator it = epochNav.begin(); it != epochNav.end(); it++) {
@@ -1616,13 +1616,13 @@ bool RinexData::saveNavData(char sys, int sat, double bo[8][4], double tTag) {
  * @param index the position in the sequence of epoch records to get
  * @return true if data have been saved, false otherwise
  */
-bool RinexData::getNavData(char& sys, int &sat, double (&bo)[8][4], double &tTag, unsigned int index) {
+bool RinexData::getNavData(char& sys, int &sat, double (&bo)[BO_MAXLINS][BO_MAXCOLS], double &tTag, unsigned int index) {
 	if (epochNav.size() <= index) return false;
 	vector<SatNavData>::iterator it = epochNav.begin() + index;
 	sys = it->systemId;
 	sat = it->satellite;
-	for (int i = 0; i < 8; i++)
-		for (int j = 0; j< 4; j++)
+	for (int i = 0; i < BO_MAXLINS; i++)
+		for (int j = 0; j < BO_MAXCOLS; j++)
 			bo[i][j] = it->broadcastOrbit[i][j];
 	tTag = it->navTimeTag;
 	return true;
@@ -2011,21 +2011,22 @@ void RinexData::printNavEpochs(FILE* out) {
                 default:
                     break;
             }
-            for (int i=1; i<4; i++)	//add the Af0, Af1 & Af2 values
+            for (int i=1; i<BO_MAXCOLS; i++)	//add the Af0, Af1 & Af2 values
                 fprintf(out, "%19.12E", it->broadcastOrbit[0][i]);
             fprintf(out, "\n");
             //print the rest of broadcast orbit data lines
             switch (it->systemId) {
                 //set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
-                case 'G': nBroadcastOrbits = 8; nEphemeris = 26; break;
-                case 'E': nBroadcastOrbits = 8; nEphemeris = 25; break;
-                case 'S': nBroadcastOrbits = 4; nEphemeris = 12; break;
-                case 'R': nBroadcastOrbits = 4; nEphemeris = 12; break;
+                case 'G': nBroadcastOrbits = BO_MAXLINS_GPS; nEphemeris = 26; break;
+                case 'E': nBroadcastOrbits = BO_MAXLINS_GAL; nEphemeris = 25; break;
+				case 'C': nBroadcastOrbits = BO_MAXLINS_BDS; nEphemeris = 26; break;
+                case 'S': nBroadcastOrbits = BO_MAXLINS_SBAS; nEphemeris = 12; break;
+                case 'R': nBroadcastOrbits = BO_MAXLINS_GLO; nEphemeris = 12; break;
                 default: throw msgSysUnk + string(1, it->systemId);
             }
             for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
                 for (int j = 0; j < lineStartSpaces; j++) fputc(' ', out);
-                for (int j = 0; j < 4; j++) {
+                for (int j = 0; j < BO_MAXCOLS; j++) {
                     if (nEphemeris > 0) fprintf(out, "%19.12E", it->broadcastOrbit[i][j]);
                     else fprintf(out, "%19c", ' ');
                     nEphemeris--;
@@ -2201,7 +2202,7 @@ int RinexData::readNavEpoch(FILE* input) {
 	double atow, attag;
 	char *startPos1st;
 	char *startPosBO;
-	double bo[8][4];
+	double bo[BO_MAXLINS][BO_MAXCOLS];
 	int retCode;
 
 	epochNav.clear();
@@ -2232,22 +2233,23 @@ int RinexData::readNavEpoch(FILE* input) {
 	default: LOG_ERR_AND_RETURN(msgWrongInFile, 9)
 	}
 	retCode = 1;
-	for (int j = 1; j < 4; j++) { GET_BO(0, j) }
+	for (int j = 1; j < BO_MAXCOLS; j++) { GET_BO(0, j) }
 	switch (sysSat) {
 	//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
-	    case 'J':
-	    case 'C':
-	    case 'G': nBroadcastOrbits = 8; nEphemeris = 26; break;
-	    case 'E': nBroadcastOrbits = 8; nEphemeris = 25; break;
-	    case 'S': nBroadcastOrbits = 4; nEphemeris = 12; break;
-	    case 'R': nBroadcastOrbits = 4; nEphemeris = 12; break;
+		//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
+		case 'G': nBroadcastOrbits = BO_MAXLINS_GPS; nEphemeris = 26; break;
+		case 'E': nBroadcastOrbits = BO_MAXLINS_GAL; nEphemeris = 25; break;
+		case 'C': nBroadcastOrbits = BO_MAXLINS_BDS; nEphemeris = 26; break;
+		case 'S': nBroadcastOrbits = BO_MAXLINS_SBAS; nEphemeris = 12; break;
+		case 'R': nBroadcastOrbits = BO_MAXLINS_GLO; nEphemeris = 12; break;
+	    case 'J': nBroadcastOrbits = BO_MAXLINS_QZSS; nEphemeris = 26; break;
 	    default: LOG_ERR_AND_RETURN(msgWrongSysPRN+string(1, sysSat), 2)
 	}
 	//read lines of broadcast orbit data in next lines
 	for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
 		if (readRinexRecord(lineBuffer, sizeof lineBuffer, input)) return 0;
 		startPos1st = startPosBO;
-		for (int j = 0; (j < 4) && (nEphemeris > 0); j++) {
+		for (int j = 0; (j < BO_MAXCOLS) && (nEphemeris > 0); j++) {
 			GET_BO(i, j)
 			nEphemeris--;
 		}

@@ -41,6 +41,34 @@
 using namespace std;
 
 //@cond DUMMY
+//maximum number of lines and columns in the RINEX broadcast orbit array
+#define BO_MAXLINS 12
+#define BO_MAXCOLS 4
+#define BO_IONOA_LIN BO_MAXLINS-4   //the line index for ionospheric corrections
+#define BO_IONOB_LIN BO_MAXLINS-3   //the line index for ionospheric corrections
+#define BO_TIME_LIN BO_MAXLINS-2   //the line index for time systems corrections
+#define BO_LEAP_LIN BO_MAXLINS-1  //the line index for leap seconds corrections
+//Number of Broadcast Orbit lines for Glonass
+#define BO_MAXLINS_GLO 4
+//Number of Broadcast Orbit lines for GPS
+#define BO_MAXLINS_GPS 8
+//Number of Broadcast Orbit lines for Galileo
+#define BO_MAXLINS_GAL 8
+//Number of Broadcast Orbit lines for Beidou
+#define BO_MAXLINS_BDS 8
+//Number of Broadcast Orbit lines for SBAS
+#define BO_MAXLINS_SBAS 4
+//Number of Broadcast Orbit lines for QZSS
+#define BO_MAXLINS_QZSS 4
+//Other related constants
+const string IONO_GAL_DES("GAL");
+const string IONO_GPSA_DES("GPSA");
+const string IONO_GPSB_DES("GPSB");
+const string IONO_QZSA_DES("QZSA");
+const string IONO_QZSB_DES("QZSB");
+const string IONO_BDSA_DES("BDSA");
+const string IONO_BDSB_DES("BDSB");
+
 const double MAXOBSVAL = 9999999999.999; //the maximum value for any observable to fit the F14.4 RINEX format
 const double MINOBSVAL = -999999999.999; //the minimum value for any observable to fit the F14.4 RINEX format
 //Mask values to define RINEX header record/label type
@@ -297,11 +325,8 @@ public:
 	bool setFilter(vector<string> selSat, vector<string> selObs);
 	bool filterObsData(bool removeNotPrt = false);
 	void clearObsData();
-	//TODO modify bo to include in bo[8] ionospheric corrections
-	//TODO modify bo to include in bo[9] time corrections
-	//TODO modify bo to include in bo[10] leap seconds
-	bool saveNavData(char sys, int sat, double bo[8][4], double tTag);
-	bool getNavData(char& sys, int &sat, double (&bo)[8][4], double &tTag, unsigned int index = 0);
+	bool saveNavData(char sys, int sat, double bo[BO_MAXLINS][BO_MAXCOLS], double tTag);
+	bool getNavData(char& sys, int &sat, double (&bo)[BO_MAXLINS][BO_MAXCOLS], double &tTag, unsigned int index = 0);
 	bool filterNavData();
 	void clearNavData();
 	//methods to print RINEX files
@@ -649,14 +674,14 @@ private:
 		double navTimeTag;	//a tag to identify the epoch of this data
 		char systemId;	//the system identification (G, E, R, ...)
 		int satellite;	//the PRN of the satellite navigation data belong
-		double broadcastOrbit[8][4];	//the eigth lines of RINEX navigation data, with four parameters each 
+		double broadcastOrbit[BO_MAXLINS][BO_MAXCOLS];	//the eigth lines of RINEX navigation data, with four parameters each
 		//constructor
-		SatNavData(double tT, char sys, int sat, double bo[8][4]) {
+		SatNavData(double tT, char sys, int sat, double bo[BO_MAXLINS][BO_MAXCOLS]) {
 			navTimeTag = tT;
 			systemId = sys;
 			satellite = sat;
-			for (int i=0; i<8; i++) 
-				for (int j=0; j<4; j++)
+			for (int i=0; i<BO_MAXLINS; i++)
+				for (int j=0; j<BO_MAXCOLS; j++)
 					broadcastOrbit[i][j] = bo[i][j];
 		};
 		//define operator for comparisons and sorting

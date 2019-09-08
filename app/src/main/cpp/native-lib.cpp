@@ -124,10 +124,10 @@ JNIEXPORT jstring JNICALL Java_com_gnssapps_acq_torinex_GenerateRinex_generateRi
     string svoid = string();
     /// 4 -create navigation file(s) or extract data for RINEX headers
     // Here filesToPrint value does not apply: RINEX navigation files are created depending on the version requested
-    // and existence of navigation data from one or several constellations.
+    // and navigation data availability from one or several constellations.
     // If version is V3.01, one navigation RINEX file can be generated with data from several constellations.
     // If version to print is V2.10 one navigation RINEX file would be generated for each constellation having data.
-    //TODO navigation files proccesing
+    // Note that V2.10 defines format for GPS, TODO navigation files proccesing
     if (!inNavFileNames.empty()) {
         log.info(LOG_MSG_GENNAV);
         /// 4.1 -extract from raw data files header and navigation data
@@ -331,8 +331,8 @@ unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFull
             rinexVersion = 2.10;
             prinex->setHdLnData(RinexData::VERSION, rinexVersion, rinexVersion, rinexVersion);
         }
-        //TODO establecer los registros SYS de header a partir de los systemas registrados
         if (rinexVersion == 2.10) {
+            //print a RINEX file for each existing constellation
             for (unsigned int i=0; prinex->getHdLnData(RinexData::SYS, constellationToPrint,  selObs, i); i++) {
                 selSys.clear();
                 selObs.clear();
@@ -340,6 +340,7 @@ unsigned int printNavFiles(RinexData* prinex,  Logger* plog, string outfilesFull
                 retCode = retCode | printOneNavFile(prinex, plog, selSys, outfilesFullPath, markName);
             }
         } else {
+            //print one RINEX file for all constellations
             retCode = printOneNavFile(prinex, plog, selSys, outfilesFullPath, markName);
         }
     } catch (string error) {
