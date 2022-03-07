@@ -12,7 +12,7 @@
 
 /**RinexData constructor providing only the minimum data required: the RINEX file version to be generated.
  *
- * Version parameter is needed in the header record RINEX VERSION / TYPE, which is mandatory in any RINEX file. Note that version
+ * Version parameter is needed in the header record RINEX VERSION / TYPE: which is mandatory in any RINEX file. Note that version
  * affects the header records that must / can be printed in the RINEX header, and the format of epoch observation data.
  * <p>A VTBD in version means that it will be defined in a further step of the process.
  * <p>Logging data are sent to the stderr.
@@ -47,7 +47,7 @@ RinexData::RinexData(RINEXversion ver, Logger* plogger) {
  * <p>Also data is passed for the recod PGM / RUN BY / DATE.
  * <p>Logging data are sent to the stderr.
  *
- * @param ver the RINEX version to be generated. (V210, V302, TBD)
+ * @param ver the RINEX version to be generated. (V210, V304, TBD)
  * @param prg the program used to create the RINEX file
  * @param rby who executed the program (run by)
  */
@@ -68,7 +68,7 @@ RinexData::RinexData(RINEXversion ver, string prg, string rby) {
  * <p>A VTBD in version means that it will be defined in a further step of the process.
  * <p>Also data is passed for the recod PGM / RUN BY / DATE.
  *
- * @param ver the RINEX version to be generated. (V210, V302, TBD)
+ * @param ver the RINEX version to be generated. (V210, V304, TBD)
  * @param prg the program used to create the RINEX file
  * @param rby who executed the program (run by)
  * @param plogger a pointer to a Logger to be used to record logging messages
@@ -122,41 +122,6 @@ RinexData::~RinexData(void) {
 	setLabelFlag(LABEL_rl); \
 	return true;
 
-/**setHdLnData sets data values for RINEX file header records.
- *
- * The label identifier values in this overload can be:
- *  - TOFO: to set the current epoch time (week and TOW) as the fist observation time. Data to be included in record TIME OF FIRST OBS
- *  - TOLO: to set the current epoch time (week and TOW) as the last observation time. Data to be included in record TIME OF LAST OBS
- *
- * @param rl the label identifier of the RINEX header record/line data values are for
- * @return true if header values have been set, false otherwise
- * @throws error message when the label identifier value does not match the allowed params for this overload
- */
-bool RinexData::setHdLnData(RINEXlabel rl) {
-	switch(rl) {
-	case TOFO:
-		firstObsWeek = epochWeek;
-		firstObsTOW = epochTOW;
-		//set the default time system value
-		switch (sysToPrintId) {
-		case 'E': obsTimeSys = "GAL"; break;
-		case 'R': obsTimeSys = "GLO"; break;
-        case 'C': obsTimeSys = "BDT"; break;
-        case 'J': obsTimeSys = "QZS"; break;
-        default: obsTimeSys = "GPS"; break;
-		}
-		setLabelFlag(TOFO);
-		return true;
-	case TOLO:
-		lastObsWeek = epochWeek;
-		lastObsTOW = epochTOW;
-		setLabelFlag(TOLO);
-		return true;
-	default:
-		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
-	}
-}
-
 /**setHdLnData sets data values for RINEX file header records
  *
  * The label identifier values in this overload can be:
@@ -186,9 +151,115 @@ bool RinexData::setHdLnData(RINEXlabel rl, RINEXlabel a, const string &b) {
 
 /**setHdLnData sets data values for RINEX file header records
  *
+ * The label identifier value can be:
+ * - IONA: to set in RINEX GPS navigation header ionosphere parameters for the ION ALPHA (V2) record.
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: ignored. It is set to IONC_GPSA
+ * 		- b: Ionosphere parameters [0-3] A0-A3
+ * 		- c: TOW for time mark
+ * 		- d: satellite identifier
+ * - IONB: to set in RINEX GPS navigation header ionosphere parameters for the ION BETA (V2) record.
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: ignored. It is set to IONC_GPSB
+ * 		- b: Ionosphere parameters [0-3] B0-B3
+ * 		- c: TOW for time mark
+ * 		- d: satellite identifier
+ * - IONC: to set in RINEX GNSS navigation header ionosphere parameters for the IONOSPHERIC CORR (V3) record.
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: the label identifier of the correction type (IONC_GAL, IONC_GPSA, IONC_GPSB, ... IONC_IRNB)
+ * 		- b: Ionosphere parameters [0-3] as per the correction type
+ * 		- c: TOW for time mark
+ * 		- d: satellite identifier
+ * - DUTC: to set in RINEX GPS navigation header time correction parameters for the DELTA-UTC: A0,A1,T,W (V2 record)
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: Ignored. It is equivalent to set it to TIMC_GPUT
+ * 		- b: Delta UTC parameters [0-1] A0,A1, [2] TOW for time mark, [3] week number for the time mark
+ * 		- c: id UTC source
+ * 		- d: id satellite number
+ * - CORRT: to set in RINEX GLONASS navigation header time correction parameters for the CORR TO SYSTEM TIME (V2 record)
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: Ignored. It is equivalent to set it to TIMC_GLUT
+ * 		- b: correction values [0] -TauC, [1] 0, [2] TOW for time mark, [3] week number for the time mark
+ * 		- c: id UTC source
+ * 		- d: id satellite number
+ * - GDUTC: to set in RINEX GEO navigation header time correction parameters for the D-UTC A0,A1,T,W,S,U (V2 record)
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: Ignored. It is equivalent to set it to TIMC_SBUT
+ * 		- b: D-UTC parameters [0-1] A0,A1, [2] TOW for time mark, [3] week number for the time mark
+ * 		- c: id UTC source
+ * 		- d: id satellite number
+ * - TIMC: to set in RINEX GNSS navigation header time correction parameters for the TIME SYSTEM CORR (V3 record.
+ * 		For this record, the meaning of the parameters will be:
+ * 		- a: the label identifier of the correction type (TIMC_GPUT, TIMC_GLUT, ... TIMC_IRGP)
+ * 		- b: Corrections: [0-1] coefficients a0-a1 as per the correction type, [2] TOW for time mark, [3] week number for the time mark
+ * 		- c: id UTC source
+ * 		- d: id satellite number
+ * @param rl the label identifier of the RINEX header record/line data values are for
+ * @param a meaning depends on the label identifier
+ * @param b meaning depends on the label identifier
+ * @param c meaning depends on the label identifier
+ * @return true if header values have been set, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::setHdLnData(RINEXlabel rl, RINEXlabel a, const double (&b)[4], int c, int d) {
+    //ignore corrections with values zero
+    bool empty = true;
+    for (int i = 0; empty && i < 4; ++i) empty = b[i] == 0.0;
+    if (empty) return false;
+    //convert V2 labels to equivalent V3 ones
+    switch (rl) {
+        case IONA:   //GPS iono alpha
+		    rl = IONC;
+		    a = IONC_GPSA;
+            setLabelFlag(IONA);
+            break;
+        case IONB:    //GPS iono beta
+		    rl = IONC;
+		    a = IONC_GPSB;
+		    setLabelFlag(IONB);
+		    break;
+        case DUTC:    //GPS UTC correction
+		    rl = TIMC;
+		    a = TIMC_GPUT;
+            setLabelFlag(DUTC);
+            break;
+        case CORRT:    //GLONASS UTC correction
+            rl = TIMC;
+            a = TIMC_GLUT;
+            setLabelFlag(CORRT);
+            break;
+        case GEOT:    //GEO UTC correction
+            rl = TIMC;
+            a = TIMC_SBUT;
+            setLabelFlag(GEOT);
+            break;
+        default:
+            break;
+    }
+    switch(rl) {
+		case IONC:
+        case TIMC:
+			//check if these data have been already stored
+			for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); it++) {
+				if ((it->corrType == a)
+                    && (it->corrValues[0] == b[0])
+                    && (it->corrValues[1] == b[1])
+                    && (it->corrValues[2] == b[2])
+                    && (it->corrValues[3] == b[3])) return false;
+			}
+			corrections.push_back(CORRECTION(a, b, c, d));
+			setLabelFlag(rl);
+            return true;
+		default:
+			throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
+	}
+}
+
+/**setHdLnData sets data values for RINEX file header records
+ *
  * The label identifier value in this overload can be:
  *  - PRNOBS: to set in RINEX header data for record PRN / # OF OBS. Note that number of observables for each
- * observation type (param c vector) shall be in the same order as per observable types for this system in the
+ *            observation type (param c vector) shall be in the same order as per observable types for this system in the
  * "# / TYPES OF OBSERV" or "SYS / # / OBS TYPES".
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
@@ -204,6 +275,35 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a, int b, const vector<int> &c) 
 		prnObsNum.push_back(PRNobsnum(a, b, c));
 		setLabelFlag(PRNOBS);
 		return true;
+	default:
+		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
+	}
+}
+/**setHdLnData sets data values for RINEX file header records
+ *
+ * The label identifier values in this overload can be:
+ *  - TOFO: to set the current epoch time (week and TOW) as the fist observation time. Data to be included in record TIME OF FIRST OBS
+ *  - TOLO: to set the current epoch time (week and TOW) as the last observation time. Data to be included in record TIME OF LAST OBS
+ *
+ *
+ * @param rl the label identifier of the RINEX header record/line data values are for
+ * @param a is the system identifier (ignored if rl is TOLO)
+ * @return true if header values have been set, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::setHdLnData(RINEXlabel rl, char a) {
+	switch(rl) {
+	case TOFO:
+        firstObsWeek = epochWeek;
+        firstObsTOW = epochTOW;
+        obsTimeSys = a;
+        setLabelFlag(TOFO);
+        return true;
+    case TOLO:
+        lastObsWeek = epochWeek;
+        lastObsTOW = epochTOW;
+        setLabelFlag(TOLO);
+        return true;
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
 	}
@@ -317,15 +417,14 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a, const string &b, const string
  * The label identifier values in this overload can be:
  *  - SYS: to set data for the given system as required in "SYS / # / OBS TYPES" records
  *  - TOBS: to set data for the given system as required in "# / TYPES OF OBSERV" record
- * <p> Note that arguments use notation according to RINEX V302 for system identification and observable types.
+ * <p> Note that arguments use notation according to RINEX V304 for system identification and observable types.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
- * @param a the system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo)
+ * @param a the system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo), ...
  * @param b a vector with identifiers for each observable type (C1C, L1C, D1C, S1C...) contained in epoch data for this system
  * @return true if header values have been set, false otherwise
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
-//bool RinexData::setHdLnData(RINEXlabel rl, char a,  const vector<string> &b) {
 bool RinexData::setHdLnData(RINEXlabel rl, char a,  vector<string> &b) {
     int sysIndex;
     bool isNew;
@@ -375,7 +474,7 @@ bool RinexData::setHdLnData(RINEXlabel rl, char a,  vector<string> &b) {
  * Params a, b an c are respectively the X, Y and Z oordinates in body-fixed coordinate system.
  *  - COFM: to set in RINEX header the current center of mass (X,Y,Z, meters) of vehicle in body-fixed coordinate system. Data to be included in record CENTER OF MASS: XYZ.
  * Params a, b an c are respectively the X, Y and Z oordinates in body-fixed coordinate system.
- *  - VERSION : to set the RINEX version to be generated. Param a is the version to be generated: V210 if 2.0 < a, V302 if 3.0 < a, VTBD otherwise.
+ *  - VERSION : to set the RINEX version to be generated. Param a is the version to be generated: V210 if 2.0 < a, V304 if 3.0 < a, VTBD otherwise.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
  * @param a meaning depends on the label identifier 
@@ -405,7 +504,7 @@ bool RinexData::setHdLnData(RINEXlabel rl, double a, double b, double c) {
 	case VERSION:
 		version = VTBD;
 		if (a > 2.0) version = V210;
-		if (a > 3.0) version = V302;
+		if (a > 3.0) version = V304;
 		return true;
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
@@ -415,32 +514,62 @@ bool RinexData::setHdLnData(RINEXlabel rl, double a, double b, double c) {
 /**setHdLnData sets data values for RINEX file header records
  *
  * The label identifier values in this overload can be:
- * - CLKOFFS to set in RINEX header if the realtime-derived receiver clock offset is applied or not (value in param a). Data to be included in record RCV CLOCK OFFS APPL.
- * - LEAP to set in RINEX header the number of leap seconds (value in param a) since 6-Jan-1980 as transmitted by the GPS almanac. Data to be included in record LEAP SECONDS.
- * - SATS to set in RINEX header the number of satellites (value in param a) for which observables are stored in the file. Data to be included in record # OF SATELLITES.
- * - WVLEN to set obligatory (in RINEX V2) default WAVELENGTH FACT L1/2 record data for the RINEX file header.
- * - GLSLT to set Glonas slot data for record "GLONASS SLOT / FRQ #" (in version V302).
- * Params a and b contains the wave length factor for L1 and L2 respectively.
+ * - CLKOFFS to set in RINEX header if the realtime-derived receiver clock offset is applied or not (value in param a).
+ * 		Data to be included in record RCV CLOCK OFFS APPL.
+ * 		Params b to e are ignored.
+ * - LEAP to set in RINEX header the number of leap seconds, being:
+ *		a: value of leap seconds
+ *		b: Future or past leap seconds ΔtLSF
+ *		c: Respective week number WN_LSF
+ *		d: Respective day number DN
+ *		e: Time system identifier
+ * - SATS to set in RINEX header the number of satellites for which observables are stored in the file.
+ * 		a: the number of satellites, to be included in record # OF SATELLITES.
+ * 		Params b to e are ignored.
+ * - WVLEN to set WAVELENGTH FACT L1/2 default record data for GPS Observation RINEX file header.
+ * 		a: the wave length factor for L1
+ *		b: the wave length factor for L2
+ * 		Params c to e are ignored.
+ * - GLSLT to set Glonas slot data for record "GLONASS SLOT / FRQ #" (in version V304):
+ *		a: the slot number
+ *		b: the corresponding frequency numbers (-7...+6)
+ * 		Params c to e are ignored.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
  * @param a meaning depends on the label identifier 
  * @param b meaning depends on the label identifier
+ * @param c meaning depends on the label identifier
+ * @param d meaning depends on the label identifier
+ * @param e meaning depends on the label identifier
  * @return true if header values have been set, false otherwise
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
-bool RinexData::setHdLnData(RINEXlabel rl, int a, int b) {
+bool RinexData::setHdLnData(RINEXlabel rl, int a, int b, int c, int d, char e) {
 	switch(rl) {
 	case CLKOFFS:
 		SET_1PARAM(CLKOFFS, rcvClkOffs)
 	case LEAP:
-		SET_1PARAM(LEAP, leapSec)
+		if (e == ' ') e = 'G';	//by default GPS
+		for (vector<LEAPsecs>::iterator it = leapSecs.begin(); it != leapSecs.end(); it++) {
+		    //check if values already set
+			if ((it->sysId == e)
+                && (it->secs == a)
+                && (it->deltaLSF == b)
+                && (it->weekLSF == c)
+                && (it->dayLSF == d)) return false;
+		}
+		leapSecs.push_back(LEAPsecs(a, b, c, d, e));
+		setLabelFlag(LEAP);
+		return true;
 	case SATS:
 		SET_1PARAM(SATS, numOfSat)
 	case WVLEN:
-		if (wvlenFactor.empty()) wvlenFactor.push_back(WVLNfactor(a, b));
-		else {
+		if (wvlenFactor.empty()) wvlenFactor.push_back(WVLNfactor(a, b));   //insert default record
+		else if (wvlenFactor[0].satNums.empty()) {    //replace current values of factors
 			wvlenFactor[0].wvlenFactorL1 = a;
 			wvlenFactor[0].wvlenFactorL2 = b;
+		} else {    //insert the default values in the first position
+		    wvlenFactor.insert(wvlenFactor.begin(), WVLNfactor(a, b));
 		}
 	 	setLabelFlag(WVLEN);
 		return true;
@@ -456,8 +585,8 @@ bool RinexData::setHdLnData(RINEXlabel rl, int a, int b) {
 /**setHdLnData sets data values for RINEX file header records
  *
  * The label identifier value in this overload can be:
- * - WVLEN to set optional WAVELENGTH FACT L1/2 records data for the RINEX file header. 
- *  Note that those optional records are for RINEX V2.1 files only.
+ * - WVLEN to set optional WAVELENGTH FACT L1/2 records data for the RINEX file header.
+ *      Note that those optional records are for RINEX V2.1 files only.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
  * @param a the wave length factor for L1
@@ -469,7 +598,6 @@ bool RinexData::setHdLnData(RINEXlabel rl, int a, int b) {
 bool RinexData::setHdLnData(RINEXlabel rl, int a, int b, const vector<string> &c) {
 	switch(rl) {
 	case WVLEN:
-		if(wvlenFactor.empty()) wvlenFactor.push_back(WVLNfactor());	//set a default wvlenFactor
 		wvlenFactor.push_back(WVLNfactor(a, b, c));
 	 	setLabelFlag(WVLEN);
 		return true;
@@ -497,8 +625,6 @@ bool RinexData::setHdLnData(RINEXlabel rl, int a, int b, const vector<string> &c
  * Param a is the marker number. Params b and c are ignored.
  * - MRKTYPE: to set marker data for the RINEX file header. Data to be included in MARKER TYPE records.
  * Param a is the marker type. Params b and c are ignored.
- * - TOFO: to set the current epoch time (week and TOW) as the fist observation time and value passed for time system. Data to be included in record "TIME OF FIRST OBS".
- * Param a is the observation time sistem. Params b and c are ignored.
  *
  * @param rl the label identifier of the RINEX header record/line data values are for
  * @param a meaning depends on the label identifier 
@@ -525,51 +651,13 @@ bool RinexData::setHdLnData(RINEXlabel rl, const string &a, const string &b, con
 		SET_1PARAM(MRKNUMBER, markerNumber)
 	case MRKTYPE:
 		SET_1PARAM(MRKTYPE, markerType)
-	case TOFO:
-		firstObsWeek = epochWeek;
-		firstObsTOW = epochTOW;
-		SET_1PARAM(TOFO, obsTimeSys)
 	default:
 		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
 	}
 }
 
 /**setHdLnData sets data values for RINEX file header records
- *
  * The label identifier value in this overload can be:
- * - IONC: to set in RINEX GPS nav header alpha ionosphere parameters (A0-A3) of almanac. Data to be included in record ION ALPHA.
- *
- * @param rl the label identifier of the RINEX header record/line data values are for
- * @param a the correction type (GAL=Galileo ai0 � ai2; GPSA=GPS alpha0 - alpha3; GPSB=GPS beta0  - beta3)
- * @param b the array with the four iono parameters
- * @return true if header values have been set, false otherwise
- * @throws error message when the label identifier value does not match the allowed params for this overload
- */
-bool RinexData::setHdLnData(RINEXlabel rl, const string &a, const vector<double> &b) {
-	switch(rl) {
-	case IONC:
-		ionoCorrection.push_back(IONOcorr(a, b));
-		setLabelFlag(IONC);
-		return true;
-	default:
-		throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
-	}
-}
-
-/**setHdLnData sets data values for RINEX file header records
- *
- * The label identifier value in this overload can be:
- * - TIMC: to set in RINEX GPS nav header correction parameters to transform the system time to UTC or
- *		other time systems. Data to be included in record TIME SYSTEM CORR.
- *		The meaning of parameters for this case hare:
- *		a the correction type (GAL=Galileo ai0 � ai2; GPSA=GPS alpha0 - alpha3; GPSB=GPS beta0  - beta3)
- *		b a0 coefficient of 1-deg polynomial
- *		c a1 coefficient of 1-deg polynomial
- *		d reference time for polynomial (Seconds into GPS/GAL week)
- *		e reference week number (GPS/GAL week, continuous number)
- *		f sbas (EGNOS, WAAS, or MSAS)
- *		g UTC Identifier
- *
  * - GLPHS to set GLONASS phase bias correction used to align code and phase observations
  *		The meaning of parameters for this case hare:
  *		a the GLONASS signal identifier (C1C, C1P, C2C, C2P)
@@ -578,20 +666,11 @@ bool RinexData::setHdLnData(RINEXlabel rl, const string &a, const vector<double>
  * @param rl the label identifier of the RINEX header record/line data values are for
  * @param a meaning depends on the label identifier
  * @param b meaning depends on the label identifier
- * @param c meaning depends on the label identifier
- * @param d meaning depends on the label identifier
- * @param e meaning depends on the label identifier
- * @param f meaning depends on the label identifier
- * @param g meaning depends on the label identifier
  * @return true if header values have been set, false otherwise
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
-bool RinexData::setHdLnData(RINEXlabel rl, const string &a, double b, double c, int d, int e, const string &f, int g) {
+bool RinexData::setHdLnData(RINEXlabel rl, const string &a, double b) {
 	switch(rl) {
-	case TIMC:
-		timCorrection.push_back(TIMcorr(a, b, c, d, e, f, g));
-		setLabelFlag(TIMC);
-		return true;
 	case GLPHS:
 		gloPhsBias.push_back(GLPHSbias(a, b));
 		setLabelFlag(GLPHS);
@@ -637,11 +716,11 @@ bool RinexData::setHdLnData(RINEXlabel rl, const string &a, double b, double c, 
  * @param rl the label identifier of the RINEX header record/line data to be extracted
  * @param a is the GNSS week number
  * @param b is the GNSS time of week (TOW)
- * @param c is the time system
+ * @param c is the system identifier of the time system
  * @return true if header values have been got, false otherwise
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
-bool RinexData::getHdLnData(RINEXlabel rl, int &a, double &b, string &c) {
+bool RinexData::getHdLnData(RINEXlabel rl, int &a, double &b, char &c) {
 	switch(rl) {
 	case TOFO:
 		GET_3PARAM(TOFO, firstObsWeek, firstObsTOW, obsTimeSys)
@@ -652,6 +731,77 @@ bool RinexData::getHdLnData(RINEXlabel rl, int &a, double &b, string &c) {
 	}
 }
 
+/**getHdLnData gets data values related to line header records previously stored in the class object
+ *
+ * The label identifier values in this overload can be:
+ * - IONC (V3) to get from RINEX nav header ionospheric corrections of the type indicated
+ * - IONA, (V2) a synonim for IONC correction of type IONC_GPSA (V3)
+ * - IONB, (V2) a synonim for IONC correction of type IONC_GPSB (V3) corrections
+ * - TIMC (V3) to get from RINEX nav header time corrections of the type indicated
+ * - DUTC, (V2) a synonim for TIMC correction of type TIMC_GPUT (V3)
+ * - CORRT, (V2) a synonim for TIMC correction of type TIMC_GLUT (V3) corrections
+ * - GEOT, (V2) a synonim for TIMC correction of type TIMC_SBUT (V3) corrections
+ * This method extracts from the vector containing all correction the one of the type indicated placed in
+ * position "index" (index values are from 0, 1, 2, ... for the first, second, third, ...) of the sequence
+ * of corrections of the given type.
+ * <p> Values returned in parameters are undefined when method returns false.
+ *
+ * @param rl the label identifier of the RINEX header record/line data to be extracted
+ * @param a the correction type: IONC_GAL, IONC_GPSA, IONC_GPSB, IONC_QZSA, IONC_QZSB, IONC_BDSA, IONC_BDSB, IONC_IRNA, IONC_IRNB or NOLABEL
+ * @param b,the iono parameters or the time coeficients and reference
+ * @param c the time mark for iono or UTC source id for time corrections
+ * @param d the satellite number being source of data
+ * @param index the position in the sequence of iono corrections records to get
+ * @return true if header values have been got, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool  RinexData::getHdLnData(RINEXlabel rl, RINEXlabel &a, double (&b)[4], int &c, int &d, unsigned int index) {
+//bool RinexData::getHdLnData(RINEXlabel rl, string &a, vector <double> &b, unsigned int index) {
+    int order = -1;
+    if (!getLabelFlag(rl)) return false;
+    //convert V2 labels to equivalent V3 ones
+    switch (rl) {
+        case IONA:   //GPS iono alpha
+            rl = IONC;
+            a = IONC_GPSA;
+            break;
+        case IONB:    //GPS iono beta
+            rl = IONC;
+            a = IONC_GPSB;
+            break;
+		case DUTC:    //GPS UTC correction
+			rl = TIMC;
+			a = TIMC_GPUT;
+			break;
+		case CORRT:    //GLONASS UTC correction
+			rl = TIMC;
+			a = TIMC_GLUT;
+			break;
+		case GEOT:    //GEO UTC correction
+			rl = TIMC;
+			a = TIMC_SBUT;
+			break;
+        default:
+            break;
+    }
+    switch(rl) {
+        case IONC:
+            //check if data requested exists; index is here the position in the list of a given type position
+            for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); it++) {
+                if ((it->corrType == a) || (a == NOLABEL)) order++;
+                if (order == index) {
+                    a = it->corrType;
+                    for (int i = 0; i < 4; ++i) b[i] = it->corrValues[i];
+                    c = (int) it->corrValues[4];
+                    d = (int) it->corrValues[5];
+                    return true;
+                }
+            }
+            return false;
+        default:
+            throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
+    }
+}
 /**getHdLnData gets data values related to line header records previously stored in the class object
  *
  * The label identifier values in this overload can be:
@@ -711,17 +861,14 @@ bool RinexData::getHdLnData(RINEXlabel rl, char &a, int &b, vector <int> &c, uns
 	}
 }
 
-/**etHdLnData gets data values related to line header records previously stored in the class object
+/**getHdLnData gets data values related to line header records previously stored in the class object
  *
  * The label identifier values in this overload can be:
- * - SCALE to get from RINEX header data the scale factor in index position of SYS / SCALE FACTOR records.
- * Param a is the system this scale factor has been applied, param b is a factor to divide stored observables
- * with (1,10,100,1000), and param c is the list of observable types involved. If vector is empty, all observable types are involved.
- * Param index is the position in the sequence of SYS / SCALE FACTOR records to get.
- * - WVLEN to get an optional WAVELENGTH FACT L1/2 record in position index in the sequence of WAVELENGTH FACT L1/2 records.
- * Param a and b are the wave length factor for L1 and L2 respectively. Param c is a vector with satellite number (system + PRNs),
- * and param index is the position in the sequence of WAVELENGTH FACT L1/2 records to get. Shall be >0 because the first position
- * is for default values.
+ * - SCALE to get from RINEX header data the scale factor in index position of SYS / SCALE FACTOR records. Meaning of parametes is:
+ *      a: is the system this scale factor has been applied,
+ *      b: is a factor to divide stored observables with (1,10,100,1000),
+ *      c: is the list of observable types involved. If vector is empty, all observable types are involved.
+ *      index: is the position in the sequence of SYS / SCALE FACTOR records to get.
  * <p> Values returned in parameters are undefined when method returns false.
  *
  * @param rl the label identifier of the RINEX header record/line data to be extracted
@@ -737,11 +884,6 @@ bool RinexData::getHdLnData(RINEXlabel rl, char &a, int &b, vector <string> &c, 
 	case SCALE:
 		if (index < obsScaleFact.size()) {
 			GET_3PARAM(SCALE, systems[obsScaleFact[index].sysIndex].system, obsScaleFact[index].factor, obsScaleFact[index].obsType)
-		}
-		return false;
-	case WVLEN:
-		if ((index > 0) && (index < wvlenFactor.size())) {
-			GET_3PARAM(WVLEN, wvlenFactor[index].wvlenFactorL1, wvlenFactor[index].wvlenFactorL2, wvlenFactor[index].satNums)
 		}
 		return false;
 	default:
@@ -835,7 +977,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, char &a, string &b, double &c, vector
  * <p> Values returned in parameters are undefined when method returns false.
  *
  * @param rl the label identifier of the RINEX header record/line data to be extracted
- * @param a the system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo)
+ * @param a the system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo), ...
  * @param b a vector with identifiers for each observable type (C1C, L1C, D1C, S1C...) contained in epoch data for this system
  * @param index the position in the sequence of "# / TYPES OF OBSERV" or "SYS / # / OBS TYPES" records to get
  * @return true if header values have been got, false otherwise
@@ -904,7 +1046,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, double &a, char &b, char &c) {
 		c = sysToPrintId;
 		switch (version) {
 		case V210: a = 2.10; break;
-		case V302: a = 3.02; break;
+		case V304: a = 3.04; break;
 		case VTBD: a = 0.0; break;
 		default: return false;
 		}
@@ -914,7 +1056,7 @@ bool RinexData::getHdLnData(RINEXlabel rl, double &a, char &b, char &c) {
 		c = sysToPrintId;
 		switch (inFileVer) {
 		case V210: a = 2.10; break;
-		case V302: a = 3.01; break;
+		case V304: a = 3.04; break;
 		case VTBD:
 			a = 0.0;
 		default:
@@ -991,7 +1133,8 @@ bool RinexData::getHdLnData(RINEXlabel rl, int &a) {
 	case CLKOFFS:
 		GET_1PARAM(CLKOFFS, rcvClkOffs)
 	case LEAP:
-		GET_1PARAM(LEAP, leapSec)
+		//to get values as per V210. GPS is allways the 1st element of the vector
+		GET_1PARAM(LEAP, leapSecs[0].secs)
 	case SATS:
 		GET_1PARAM(SATS, numOfSat)
 	default:
@@ -1002,7 +1145,6 @@ bool RinexData::getHdLnData(RINEXlabel rl, int &a) {
 /**getHdLnData gets data values related to line header records previously stored in the class object
  *
  * The label identifier values in this overload can be:
- * - WVLEN: to get default WAVELENGTH FACT L1/2 record data.
  * - GLSLT; to get Glonas slot - frequency number data
  * <p> Values returned in parameters are undefined when method returns false.
  *
@@ -1014,19 +1156,77 @@ bool RinexData::getHdLnData(RINEXlabel rl, int &a) {
  * @throws error message when the label identifier value does not match the allowed params for this overload
  */
 bool RinexData::getHdLnData(RINEXlabel rl, int &a, int &b, unsigned int index) {
+    switch(rl) {
+        case GLSLT:
+            if (index < gloSltFrq.size()) {
+                GET_2PARAM(GLSLT, gloSltFrq[index].slot, gloSltFrq[index].frqNum)
+            }
+            return false;
+        default:
+            throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
+    }
+}
+
+/**getHdLnData gets data values related to line header records previously stored in the class object
+ *
+ * The label identifier values in this overload can be:
+ * - WVLEN to get a WAVELENGTH FACT L1/2 record in position index in the sequence of WAVELENGTH FACT L1/2 records. Meaning of parametes is:
+ *      a: the wave length factor for L1
+ *      b: the wave length factor for L2
+ *      c: is a vector with satellite number (system + PRNs),
+ *      index: is the position in the sequence of WAVELENGTH FACT L1/2 records to get
+ * <p> Values returned in parameters are undefined when method returns false.
+ *
+ * @param rl the label identifier of the RINEX header record/line data to be extracted
+ * @param a meaning depends on the label identifier
+ * @param b meaning depends on the label identifier
+ * @param c meaning depends on the label identifier
+ * @param index the position in the sequence of records the one to be extracted
+ * @return true if header values have been got, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::getHdLnData(RINEXlabel rl, int &a, int &b, vector <string> &c, unsigned int index) {
+    switch(rl) {
+        case WVLEN:
+            if (index < wvlenFactor.size()) {
+                GET_3PARAM(WVLEN, wvlenFactor[index].wvlenFactorL1, wvlenFactor[index].wvlenFactorL2, wvlenFactor[index].satNums)
+            }
+            return false;
+        default:
+            throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
+    }
+}
+
+/**getHdLnData gets data values from RINEX file header records
+ *
+ * The label identifier values in this overload can be:
+ * - LEAP to get from RINEX header the parameters related to leap seconds, being:
+ *		a: value of leap seconds
+ *		b: Future or past leap seconds ΔtLSF
+ *		c: Respective week number WN_LSF
+ *		d: Respective day number DN
+ *		e: Time system identifier
+ *		index: The position in the sequence of "LEAP SECONDS" records to get
+ *
+ * @param rl the label identifier of the RINEX header record/line data values are for
+ * @param a meaning depends on the label identifier
+ * @param b meaning depends on the label identifier
+ * @param c meaning depends on the label identifier
+ * @param d meaning depends on the label identifier
+ * @param e meaning depends on the label identifier
+ * @return true if header values have been set, false otherwise
+ * @throws error message when the label identifier value does not match the allowed params for this overload
+ */
+bool RinexData::getHdLnData(RINEXlabel rl, int &a, int &b, int &c, int &d, char &e, unsigned int index) {
 	switch(rl) {
-	case WVLEN:
-		if (index < wvlenFactor.size()) {
-			GET_2PARAM(WVLEN, wvlenFactor[index].wvlenFactorL1, wvlenFactor[index].wvlenFactorL2)
-		}
-		return false;
-	case GLSLT:
-	    if (index < gloSltFrq.size()) {
-	        GET_2PARAM(GLSLT, gloSltFrq[index].slot, gloSltFrq[index].frqNum)
-	    }
-	    return false;
-	default:
-		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
+		case LEAP:
+			if (index < leapSecs.size()) {
+			    e = leapSecs[0].sysId;
+			    GET_4PARAM(LEAP, leapSecs[0].secs, leapSecs[0].deltaLSF, leapSecs[0].weekLSF, leapSecs[0].dayLSF)
+			}
+			return false;
+		default:
+			throw errorLabelMis + idTOlbl(rl) + msgSetHdLn;
 	}
 }
 
@@ -1119,31 +1319,6 @@ bool RinexData::getHdLnData(RINEXlabel rl, string &a, string &b, string &c) {
 /**getHdLnData gets data values related to line header records previously stored in the class object
  *
  * The label identifier values in this overload can be:
- * - IONC to get in RINEX GPS nav header alpha ionosphere parameters (A0-A3) of almanac. Data to be included in record ION ALPHA.
- * <p> Values returned in parameters are undefined when method returns false.
- *
- * @param rl the label identifier of the RINEX header record/line data to be extracted
- * @param a the correction type (GAL=Galileo ai0 � ai2; GPSA=GPS alpha0 - alpha3; GPSB=GPS beta0  - beta3)
- * @param b the iono parameter values
- * @param index the position in the sequence of iono corrections records to get
- * @return true if header values have been got, false otherwise
- * @throws error message when the label identifier value does not match the allowed params for this overload
- */
-bool RinexData::getHdLnData(RINEXlabel rl, string &a, vector <double> &b, unsigned int index) {
-	switch(rl) {
-	case IONC:
-		if (index < ionoCorrection.size()) {
-			GET_2PARAM(IONC, ionoCorrection[index].corrType, ionoCorrection[index].corrValues)
-		}
-		return false;
-	default:
-		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
-	}
-}
-
-/**getHdLnData gets data values related to line header records previously stored in the class object
- *
- * The label identifier values in this overload can be:
  * - GLPHS to get GLONASS phase bias correction used to align code and phase observations
  *		The meaning of parameters for this case hare:
  *		a the GLONASS signal identifier (C1C, C1P, C2C, C2P)
@@ -1165,42 +1340,6 @@ bool RinexData::getHdLnData(RINEXlabel rl, string &a, double &b, unsigned int in
 			return false;
 		default:
 			throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
-	}
-}
-
-/**getHdLnData gets data values related to line header records previously stored in the class object
- *
- * The label identifier values in this overload can be:
- * - TIMC to get in RINEX GPS nav header correction parameters to transform the system time to UTC or other time systems. Data to be included in record TIME SYSTEM CORR.
- * <p> Values returned in parameters are undefined when method returns false.
- *
- * @param a correction type
- * @param b a0 coefficient of 1-deg polynomial
- * @param c a1 coefficient of 1-deg polynomial
- * @param d reference time for polynomial (Seconds into GPS/GAL week)
- * @param e reference week number (GPS/GAL week, continuous number)
- * @param f sbas (EGNOS, WAAS, or MSAS)
- * @param g UTC Identifier
- * @param index the position in the sequence of time corrections records to get
- * @return true if header values have been got, false otherwise
- * @throws error message when the label identifier value does not match the allowed params for this overload
- */
-bool RinexData::getHdLnData(RINEXlabel rl, string &a, double &b, double &c, int &d, int &e, string &f, int &g, unsigned int index) {
-	switch(rl) {
-	case TIMC:
-		if (index < timCorrection.size()) {
-			a = timCorrection[index].corrType;
-			b = timCorrection[index].a0;
-			c = timCorrection[index].a1;
-			d = timCorrection[index].refTime;
-			e = timCorrection[index].refWeek;
-			f = timCorrection[index].sbas;
-			g = timCorrection[index].utcId;
-			return getLabelFlag(TIMC);
-		}
-		return false;
-	default:
-		throw errorLabelMis + idTOlbl(rl) + msgGetHdLn;
 	}
 }
 #undef GET_1PARAM
@@ -1275,7 +1414,6 @@ void RinexData::clearHeaderData() {
 	wvlenFactor.clear();
 	dcbsApp.clear();
 	obsScaleFact.clear();
-	//*setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 }
 
 /*methods to process and collect current epoch data
@@ -1296,7 +1434,7 @@ double RinexData::setEpochTime(int weeks, double secs, double bias, int eFlag) {
 	epochTOW = secs;
 	epochClkOffset = bias;
 	epochFlag = eFlag;
-	return getSecsGPSEphe (epochWeek, epochTOW);
+	return getInstantGNSStime (epochWeek, epochTOW);
 }
 
 /**getEpochTime gets epoch time (week number, time of week), clock offset and event flag from the current epoch data.
@@ -1316,7 +1454,7 @@ double RinexData::getEpochTime(int &weeks, double &secs, double &bias, int &eFla
 	secs = epochTOW;
 	bias = epochClkOffset;
 	eFlag = epochFlag;
-	return getSecsGPSEphe (epochWeek, epochTOW);
+	return getInstantGNSStime (epochWeek, epochTOW);
 }
 
 /**saveObsData stores measurement data for the given observable into the epoch data storage.
@@ -1331,10 +1469,10 @@ double RinexData::getEpochTime(int &weeks, double &secs, double &bias, int &eFla
  *
  * @param sys the system identification (G, S, ...) the measurement belongs
  * @param sat the satellite PRN the measurement belongs
- * @param obsTp the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.01
+ * @param obsTp the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.04
  * @param value the value of the measurement
  * @param lli the loss o lock indicator. See RINEX V2.10
- * @param strg the signal strength. See RINEX V3.01
+ * @param strg the signal strength. See RINEX V3.04
  * @param tTag the time tag for the epoch this measurement belongs
  * @return true if data belong to the current epoch, false otherwise
  */
@@ -1361,10 +1499,10 @@ bool RinexData::saveObsData(char sys, int sat, string obsTp, double value, int l
  *
  * @param sys the system identification (G, S, ...) the measurement belongs
  * @param sat the satellite PRN the measurement belongs
- * @param obsTp the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.01
+ * @param obsTp the type of observable/measurement (C1C, L1C, D1C, ...) as per RINEX V3.04
  * @param value the value of the measurement
  * @param lli the loss of lock indicator. See RINEX V2.10
- * @param strg the signal strength. See RINEX V3.01
+ * @param strg the signal strength. See RINEX V3.04
  * @param index the position in the sequence of opoch observables to extract
  * @return true if data for the given index exist, false otherwise
  */
@@ -1395,7 +1533,7 @@ bool RinexData::getObsData(char &sys, int &sat, string &obsTp, double &value, in
  * for filtering navigation data.
  *
  * @param selSat the vector containing the list of selected systems and / or satellites. A system is identified by its assigned char (G, E, R,...). A satellite is identified by the system char followed by the prn number.
- * @param selObs the vector containing the list of selected observables. An observable is identified by the system identification char (G, E, R, ...) followed by the observation code as defined in RINEX v3.02
+ * @param selObs the vector containing the list of selected observables. An observable is identified by the system identification char (G, E, R, ...) followed by the observation code as defined in RINEX v3.04
  * @return true when filtering data are coherent or not filtering is requested, false when filtering data are not coherent
  */
 bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
@@ -1441,12 +1579,6 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
     int sysIdx, obsIdx, n, o;
     bool found;
     string aStr;
-/*
-    if (selSat.empty() && selObs.empty()) {
-        plog->info(msgFilterCleared);
-        return true;
-    }
-*/
     plog->info(msgFilterStated);
     //1st: Verify input data in selSat. Save system identification and satellite number of correct ones
     bool areCoherent = true;
@@ -1464,7 +1596,6 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
         if (sysIdx < 0) {
             plog->warning(msgWrongSysSat + (*it));
             areCoherent = false;
-        //    return false;
         }
     }
     //verify given data for selected systems - observations. Save system index and observation index of correct ones
@@ -1480,28 +1611,8 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
         if (!found) {
             plog->warning(msgNotInSYS + msgSelObs + (*itSelObs));
             areCoherent = false;
-        //    return false;
         }
     }
-/*
-    if (selectedSats.empty() && selectedObs.empty()) {
-        plog->warning(msgNoSel);
-        return false;
-    }
-    //there is at least a system selected to filter data. Reset select data in systems
-    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
-        it->selSystem = false;
-        it->selSat.clear();
-        if (!selectedObs.empty()) {
-            for (vector<OBSmeta>::iterator itobs = it->obsTypes.begin(); itobs != it->obsTypes.end(); itobs++) itobs->sel = false;
-        }
-    }
-    //update select data in systems for satelite selected
-    for (vector<SELsats>::iterator it = selectedSats.begin(); it!= selectedSats.end(); it++) {
-        systems[it->sysIndex].selSystem = true;
-        systems[it->sysIndex].selSat.push_back(it->satNumber);
-    }
-*/
     if (selectedSats.empty()) {
         //reset system status as ALL SYSTEMS AND SATELLITES SELECTED
         for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
@@ -1521,12 +1632,6 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
         }
     }
     //update observation data in systems for observations selected
-    /*
-    for (vector<SELobs>::iterator it = selectedObs.begin(); it != selectedObs.end(); it++) {
-        systems[it->sysIndex].selSystem = true;
-        systems[it->sysIndex].obsTypes[it->obsIndex].sel = true;
-    }
-    */
     if (!selectedObs.empty()) {
         for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
             it->selSystem = false;
@@ -1537,7 +1642,6 @@ bool RinexData::setFilter(vector<string> selSat, vector<string> selObs) {
             systems[it->sysIndex].obsTypes[it->obsIndex].sel = true;
         }
     }
-    //plog->info(msgFilterStated);
     for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
         if (it->selSystem) {
             aStr = msgSelSys + string(1, it->system) + msgComma;
@@ -1595,15 +1699,19 @@ void RinexData::clearObsData() {
  */
 bool RinexData::saveNavData(char sys, int sat, double bo[BO_MAXLINS][BO_MAXCOLS], double tTag) {
 	//check if this sat epoch data already exists: same satellite and time tag
-	string logmsg = msgEpheSat+ string(1,sys) + to_string(sat+1) + msgTimeTag + to_string(tTag);
+	string logmsg = msgEpheSat+ string(1,sys) + to_string(sat) + msgTimeTag + to_string(tTag);
 	for (vector<SatNavData>::iterator it = epochNav.begin(); it != epochNav.end(); it++) {
 		if((sys == it->systemId) && (sat == it->satellite) && (tTag == it->navTimeTag)) {
 			plog->fine(logmsg + msgAlrEx);
 			return false;
 		}
 	}
-	epochNav.push_back(SatNavData(tTag, sys, sat, bo));
-	plog->fine(logmsg + msgSaved);
+	try {
+		epochNav.push_back(SatNavData(tTag, sys, sat, bo));
+		plog->fine(logmsg + msgSaved);
+	} catch (std::bad_alloc& ba) {
+		plog->warning(logmsg + msgNoMem + ba.what());
+	}
 	return true;
 }
 
@@ -1651,33 +1759,45 @@ void RinexData::clearNavData() {
 
 /**getObsFileName constructs a standard RINEX observation file name from the given prefix and current header data.
  * For V2.1 RINEX file names, the given prefix and the current TIME OF FIRST OBSERVATION header data are used.
- * Additionally, for V3.02 the file name includes data from MARKER NUMBER, REC # / TYPE / VERS, TIME OF FIRST OBS and TIME OF LAST OBS,
+ * Additionally, for V3.04 the file name includes data from MARKER NUMBER, REC # / TYPE / VERS, TIME OF FIRST OBS and TIME OF LAST OBS,
  * INTERVAL, and SYS / # / OBS TYPES header records (if defin3ed) and country parameter.
  *
  * @param prefix : the file name prefix
  * @param country the 3-char ISO 3166-1 country code, or "---" if parameter not given
- * @return the RINEX observation file name in the standard format (PRFXdddamm.yyO for v2.1, XXXXMRCCC_R_YYYYDDDHHMM_FPU_DFU_DO.RNX for v3.02)
+ * @return the RINEX observation file name in the standard format (PRFXdddamm.yyO for v2.1, XXXXMRCCC_R_YYYYDDDHHMM_FPU_DFU_DO.RNX for v3.04)
  */
 string RinexData::getObsFileName(string prefix, string country) {
+    try {
+        setFileDataType('O');
+    } catch (string errorMsg) {
+        plog->warning(msgBadFileName + errorMsg);
+        return "BadObsName.txt";
+    }
 	switch(version) {
-	case V302:
-		return fmtRINEXv3name(prefix, firstObsWeek, firstObsTOW, 'O', country);
+	case V304:
+		return fmtRINEXv3name(prefix, firstObsWeek, firstObsTOW, country);
 	default:
-		return fmtRINEXv2name(prefix, firstObsWeek, firstObsTOW, 'O');
+		return fmtRINEXv2name(prefix, firstObsWeek, firstObsTOW);
 	}
 }
 
 /**getNavFileName constructs a standard RINEX navigation file name from the given prefix and using current header data.
  * For V2.1 RINEX file names, the given prefix and suffix parameters data are used.
- * Additionally, for V3.02 the file name includes data from MARKER NUMBER, REC # / TYPE / VERS, TIME OF FIRST OBS and TIME OF LAST OBS,
+ * Additionally, for V3.04 the file name includes data from MARKER NUMBER, REC # / TYPE / VERS, TIME OF FIRST OBS and TIME OF LAST OBS,
  * and SYS / # / OBS TYPES header records (if defin3ed) and country parameter.
  *
  * @param prefix the file name prefix as 4-character station name designator
- * @param suffix the file name las char in the extension (N by default)
  * @param country the 3-char ISO 3166-1 country code, or "---" by default
- * @return the RINEX GPS file name in the standard format  (PRFXdddamm.yyN for v2.1, XXXXMRCCC_R_YYYYDDDHHMM_FPU_DFU_DN.RNX for v3.02)
+ * @return the RINEX file name in the standard format  (PRFXdddamm.yyN for v2.1, XXXXMRCCC_R_YYYYDDDHHMM_FPU_DFU_DN.RNX for v3.04)
+ * @throws error message string when a navigation file name cannot be
  */
-string RinexData::getNavFileName(string prefix, char suffix, string country) {
+string RinexData::getNavFileName(string prefix, string country) {
+    try {
+        setFileDataType('N');
+    } catch (string errorMsg) {
+        plog->warning(msgBadFileName + errorMsg);
+        return "BadNavName.txt";
+    }
 	int week = epochWeek;
 	double tow = epochTOW;
 	if (getLabelFlag(TOFO)) {
@@ -1686,18 +1806,19 @@ string RinexData::getNavFileName(string prefix, char suffix, string country) {
 	}
 	if (!epochNav.empty()) {
 		sort(epochNav.begin(), epochNav.end());
-		week = getGPSweek(epochNav[0].navTimeTag);
-		tow = getGPStow(epochNav[0].navTimeTag);
+		week = getWeekGNSSinstant(epochNav[0].navTimeTag);
+		tow = getTowGNSSinstant(epochNav[0].navTimeTag);
 	}
 	switch(version) {
-	case V302:
-		return fmtRINEXv3name(prefix, week, tow, suffix, country);
+	case V304:
+		return fmtRINEXv3name(prefix, week, tow, country);
 	default:
-		return fmtRINEXv2name(prefix, week, tow, suffix);
+		return fmtRINEXv2name(prefix, week, tow);
 	}
 }
 
 /**printObsHeader prints the RINEX observation file header using data stored for header records.
+ * At least, a system has to be previously selected for being printed.
  *
  * @param out the already open print stream where RINEX header will be printed
  * @throws error message string when header cannot be printed
@@ -1707,14 +1828,18 @@ void RinexData::printObsHeader(FILE* out) {
 	if (version == VTBD) version = inFileVer;
 	if (version == VTBD) throw msgVerTBD;
 	/// - Set file type for Observation.
-	fileType = 'O';
+    try {
+        setFileDataType('O', true);
+        setSuffixes();
+    } catch (string errorMsg) {
+        plog->warning(msgWrongVer + errorMsg);
+    }
 	/// - Set the system identification for the one to be printed.
-	setSysToPrintId(msgNotSys);
 	setLabelFlag(VERSION);
 	/// - Depending on version to be printed, set "# / TYPES OF OBSERV" or "SYS / # / OBS TYPES" data record.
 	if(version == V210) {
         //in V210 all systems shall have the same observables to print
-        //compute aVectorBool setting to true the related obsTypes that shall be printed
+        //compute aVectorBool setting to true the corresponding obsTypes that shall be printed
         //Note that only V210 obsTypes are taken into account
         vector<bool> aVectorBool;
         aVectorBool.insert(aVectorBool.begin(), numberV2ObsTypes, false);
@@ -1727,7 +1852,7 @@ void RinexData::printObsHeader(FILE* out) {
         //set in systems the obTypes data related to printing
         bool isAny;
         for (vector<GNSSsystem>::iterator itsys = systems.begin(); itsys != systems.end(); itsys++) {
-            //check if in this system there is any obsType to print
+            //check if this system has any obsType to print
             isAny = false;
             for (int i = 0; i < numberV2ObsTypes; i++) if (itsys->obsTypes[i].prt) { isAny = true; break; }
             if (isAny) {
@@ -1738,7 +1863,7 @@ void RinexData::printObsHeader(FILE* out) {
         }
 		setLabelFlag(SYS, false);
 		setLabelFlag(TOBS);
-	} else {	//version will be V302
+	} else {	//version will be V304
         //determine de obsTypes to print in this version (all selected)
         for (vector<GNSSsystem>::iterator itsys = systems.begin(); itsys != systems.end(); itsys++) {
             for (vector<OBSmeta>::iterator itobs = itsys->obsTypes.begin(); itobs != itsys->obsTypes.end(); itobs++) {
@@ -1748,7 +1873,6 @@ void RinexData::printObsHeader(FILE* out) {
 		setLabelFlag(SYS);
 		setLabelFlag(TOBS, false);
 	}
-    setSuffixes();
     setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	///Finally, for each observation header record belonging to the current version and having data defined, print it.
 	for (vector<LABELdata>::iterator it = labelDef.begin(); it != labelDef.end(); it++) {
@@ -1790,7 +1914,7 @@ void RinexData::printObsEpoch(FILE* out) {
 		formatGPStime (timeBuffer, 80, " %y %m %d %H %M", "%11.7f", epochWeek, epochTOW);
 		if((epochClkOffset < 99.999999999) && (epochClkOffset > -9.999999999)) sprintf(clkOffsetBuffer, "%12.9f", epochClkOffset);
 		break;
-	case V302:	//RINEX version 3.00
+	case V304:	//RINEX version 3.04
 		formatGPStime (timeBuffer, 80, "> %Y %m %d %H %M", "%11.7f", epochWeek, epochTOW);
 		if((epochClkOffset < 99.999999999999) && (epochClkOffset > -9.999999999999)) sprintf(clkOffsetBuffer, "%15.12f", epochClkOffset);
 		break;
@@ -1823,7 +1947,6 @@ void RinexData::printObsEpoch(FILE* out) {
 					fprintf(out, "%1c%02d", systems[it->sysIndex].system, it->satellite);
 					anInt++;
 					if (anInt == 12) {		//printed last sat in the 1st line
-						//*fprintf(out, "%12.9f", epochClkOffset);
 						fprintf(out, "%s", clkOffsetBuffer);
 						clkOffsetPrinted = true;
 					}
@@ -1838,12 +1961,12 @@ void RinexData::printObsEpoch(FILE* out) {
 			while (printSatObsValues(out, V210))
 			    ;
 	 		break;
-		case V302:	//RINEX version 3.00
+		case V304:	//RINEX version 3.04
             fprintf(out, "%s  %1d%3d%5c%s%3c\n", timeBuffer, epochFlag, nSatsEpoch, ' ', clkOffsetBuffer, ' ');
 			//for each satellite in this epoch,  print a line with their measurements (they are removed just after printed)
 			do {
 				fprintf(out, "%1c%02d", systems[epochObs[0].sysIndex].system, epochObs[0].satellite);
- 			} while (printSatObsValues(out, V302));
+ 			} while (printSatObsValues(out, V304));
  			break;
 		default:
 		     break;
@@ -1893,46 +2016,16 @@ void RinexData::printObsEpoch(FILE* out) {
  */
 void RinexData::printNavHeader(FILE* out) {
 	///Before printing, set VERSION data record which depends on the version to be printed.
-	///<p>Note that in RINEX V3.02 a navigation file can include ephemeris from several navigation systems,
-	/// but in V2.10 a navigation file can include data for only one system.
 	const string msgNotNav("No system selected to generate navigation file");
 	int n = 0;
 	if (version == VTBD) version = inFileVer;
-	switch (version) {	//version to print
-		case V210:
-			//Set values for a V2.10 navigation file
-			sysToPrintId = 0;
-			//look for the first system selected
-			for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
-				if (it->selSystem) {
-					sysToPrintId = it->system;
-			 		switch (sysToPrintId) {
-			 			case 'G': fileType = 'N'; break;	//GPS nav
-			 			case 'R': fileType = 'G'; break;	//GLONASS nav
-			 			case 'S': fileType = 'H'; break;	//SBAS nav
-			 			default : throw "In version 2.10  cannot generate navigation file for system " + string(1, it->system); break;
-			 		}
-			 		break;
-			 	}
-			}
-			if (sysToPrintId == 0) throw msgNotNav;
-			break;
-		case V302:
-		 	fileType = 'N';
-            //count the number of systems to print and set value for sysToPrintId
-		 	for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++)
-				if (it->selSystem) {
-					sysToPrintId = it->system;
-					n++;
-				}
-			//if more than one selected, set Mixed value
-			if (n == 0) throw msgNotNav;
-		 	else if (n > 1) sysToPrintId = 'M';
-			break;
-		default:
-		 	throw msgVerTBD;
-	 }
-    setSuffixes();
+	if (version == VTBD) throw msgVerTBD;
+    try {
+         setFileDataType('N', true);
+         setSuffixes();
+    } catch (string errorMsg) {
+         plog->warning(msgWrongVer + errorMsg);
+    }
 	setLabelFlag(VERSION);
     setLabelFlag(EOH);	//END OF HEADER record shall allways be printed
 	///Finally, for each navigation header record belonging to the current version and having data defined, it is printed.
@@ -1948,7 +2041,7 @@ void RinexData::printNavHeader(FILE* out) {
 }
 
 /**printNavEpochs prints ephemeris data stored according version and systems selected.
- *<p>If version to print is V3.01, all stored data are printed, but if version to print is V2.10
+ *<p>If version to print is V3.04, all stored data are printed, but if version to print is V2.10
  *only data for the system stated in the version header record will be printed, which is the first
  *in the list of selected systems (using setFilter method).
  *<p>Ephemeris data printed are removed from the storage.
@@ -1980,7 +2073,7 @@ void RinexData::printNavEpochs(FILE* out) {
 		secondsFormat = " %4.1f";
 		lineStartSpaces = 3;
 		break;
-	case V302:
+	case V304:
 		timeFormat = "%Y %m %d %H %M %S";
 		secondsFormat = "";
 		lineStartSpaces = 4;
@@ -1997,7 +2090,7 @@ void RinexData::printNavEpochs(FILE* out) {
 	    if (isSatSelected(systemIndex(it->systemId), it->satellite)) {
             plog->finest(msgNavEpochPrn + string(1, it->systemId) + msgComma + to_string(it->satellite));
             //print epoch first line
-            formatGPStime (timeBuffer, sizeof timeBuffer, timeFormat, secondsFormat, getGPSweek(it->navTimeTag), getGPStow(it->navTimeTag));
+            formatGPStime (timeBuffer, sizeof timeBuffer, timeFormat, secondsFormat, getWeekGNSSinstant(it->navTimeTag), getTowGNSSinstant(it->navTimeTag));
             switch (version) {	//print satellite and epoch time
                 case V210:
                     fprintf(out, "%02d %s", it->satellite, timeBuffer);
@@ -2005,7 +2098,7 @@ void RinexData::printNavEpochs(FILE* out) {
                         it->broadcastOrbit[0][3] = fmod(it->broadcastOrbit[0][3], 86400);
                     }
                     break;
-                case V302:
+                case V304:
                     fprintf(out, "%1c%02d %s", it->systemId, it->satellite, timeBuffer);
                     break;
                 default:
@@ -2016,12 +2109,12 @@ void RinexData::printNavEpochs(FILE* out) {
             fprintf(out, "\n");
             //print the rest of broadcast orbit data lines
             switch (it->systemId) {
-                //set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
-                case 'G': nBroadcastOrbits = BO_MAXLINS_GPS; nEphemeris = 26; break;
-                case 'E': nBroadcastOrbits = BO_MAXLINS_GAL; nEphemeris = 25; break;
-				case 'C': nBroadcastOrbits = BO_MAXLINS_BDS; nEphemeris = 26; break;
-                case 'S': nBroadcastOrbits = BO_MAXLINS_SBAS; nEphemeris = 12; break;
-                case 'R': nBroadcastOrbits = BO_MAXLINS_GLO; nEphemeris = 12; break;
+                //set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.04 doc
+                case 'G': nBroadcastOrbits = BO_MAXLINS_GPS; nEphemeris = BO_TOTEPHE_GPS; break;
+                case 'R': nBroadcastOrbits = BO_MAXLINS_GLO; nEphemeris = BO_TOTEPHE_GLO; break;
+                case 'E': nBroadcastOrbits = BO_MAXLINS_GAL; nEphemeris = BO_TOTEPHE_GAL; break;
+				case 'C': nBroadcastOrbits = BO_MAXLINS_BDS; nEphemeris = BO_TOTEPHE_BDS; break;
+                case 'S': nBroadcastOrbits = BO_MAXLINS_SBAS; nEphemeris = BO_TOTEPHE_SBAS; break;
                 default: throw msgSysUnk + string(1, it->systemId);
             }
             for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
@@ -2161,7 +2254,7 @@ int RinexData::readObsEpoch(FILE* input) {
 	switch(inFileVer) {
 	case V210:
 		return readV2ObsEpoch(input);
-	case V302:
+	case V304:
 		return readV3ObsEpoch(input);
 	default:
 		return 9;
@@ -2180,6 +2273,7 @@ int RinexData::readObsEpoch(FILE* input) {
  *		- (4)	Error in epoch date or time format. No epoch data stored.
  *		- (5)	Error in epoch data. No epoch data stored.
  *		- (9)	Unknown input file version
+ *		- (10)	Out of memory. No epoch data stored.
  */
 int RinexData::readNavEpoch(FILE* input) {
 ///a macro to log the given error and return
@@ -2222,7 +2316,7 @@ int RinexData::readNavEpoch(FILE* input) {
 		startPos1st = lineBuffer + 22;	//start position of SV clock data in the 1st line
 		startPosBO = lineBuffer + 3;	//start position of broadcat orbit data
 		break;
-	case V302:
+	case V304:
 		if (sscanf(lineBuffer, "%1c%2d", &sysSat, &prnSat) != 2) LOG_ERR_AND_RETURN(msgWrongSysPRN, 3)
 		if (sscanf(lineBuffer+4, "%4d %2d %2d %2d %2d %2d", &year, &month, &day, &hour, &minute, &anInt) != 6)
 			LOG_ERR_AND_RETURN(msgWrongDate, 4)
@@ -2235,8 +2329,8 @@ int RinexData::readNavEpoch(FILE* input) {
 	retCode = 1;
 	for (int j = 1; j < BO_MAXCOLS; j++) { GET_BO(0, j) }
 	switch (sysSat) {
-	//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
-		//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.01 doc
+	//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.04 doc
+		//set values for nBroadcastOrbits and nEphemeris as stated in RINEX 3.04 doc
 		case 'G': nBroadcastOrbits = BO_MAXLINS_GPS; nEphemeris = 26; break;
 		case 'E': nBroadcastOrbits = BO_MAXLINS_GAL; nEphemeris = 25; break;
 		case 'C': nBroadcastOrbits = BO_MAXLINS_BDS; nEphemeris = 26; break;
@@ -2247,26 +2341,29 @@ int RinexData::readNavEpoch(FILE* input) {
 	}
 	//read lines of broadcast orbit data in next lines
 	for (int i = 1; (i < nBroadcastOrbits) && (nEphemeris > 0); i++) {
-		if (readRinexRecord(lineBuffer, sizeof lineBuffer, input)) return 0;
+		if (readRinexRecord(lineBuffer, sizeof lineBuffer, input)) LOG_ERR_AND_RETURN(msgNoBO, 5);
 		startPos1st = startPosBO;
 		for (int j = 0; (j < BO_MAXCOLS) && (nEphemeris > 0); j++) {
 			GET_BO(i, j)
 			nEphemeris--;
 		}
 	}
-	if (retCode == 1) {	//set time and store data
-		setWeekTow(year, month, day, hour, minute, second, anInt, atow);
-		attag = getSecsGPSEphe(anInt, atow);
-		if(epochNav.empty()) {	//set the time for the current epoch
-			epochWeek = anInt;
-			epochTOW = atow;
-			epochTimeTag = attag;
-		} else if(attag != epochTimeTag) {
-			retCode = 2;
-			msgPrfx += msgNewEp;
-		}
+	//set time and store data
+	getWeekTowGPSdate(year, month, day, hour, minute, second, anInt, atow);
+	attag = getInstantGNSStime(anInt, atow);
+	if(epochNav.empty()) {	//set the time for the current epoch
+		epochWeek = anInt;
+		epochTOW = atow;
+		epochTimeTag = attag;
+	} else if(attag != epochTimeTag) {
+		retCode = 2;
+		msgPrfx += msgNewEp;
+	}
+	try {
+		epochNav.push_back(SatNavData(attag, sysToPrintId, prnSat, bo));
 		msgPrfx += msgStored;
-        epochNav.push_back(SatNavData(attag, sysToPrintId, prnSat, bo));
+	} catch (std::bad_alloc& ba) {
+		LOG_ERR_AND_RETURN(msgNoMem + ba.what(), 10)
 	}
 	plog->fine(msgPrfx);
 	return retCode;
@@ -2289,52 +2386,88 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
 	version = v;
 	inFileVer = VTBD;
 	fileType = sysToPrintId = '?';
-	//obsTimeSys = string("GPS");
 	//Epoch time data
 	epochWeek = 0;
 	epochTOW = epochTimeTag = epochClkOffset = 0.0;
 	epochFlag = 0;
+	//LEAP SECONDS
+	//1st element in vector allways GPS, and default values set to 18 secs as per 2019
+    leapSecs.push_back(LEAPsecs(18,0,0,0,'G'));
+    //a table of system related descriptions (system identification, time description, system description, ...)
+	sysDescript.push_back(SYSdescript('G', "GPS", ": GPS"));
+	sysDescript.push_back(SYSdescript('M', "GPS", ": Mixed"));
+	sysDescript.push_back(SYSdescript('R', "GLO", ": GLONASS"));
+	sysDescript.push_back(SYSdescript('E', "GAL", ": Galileo"));
+	sysDescript.push_back(SYSdescript('C', "BDT", ": Beidou"));
+	sysDescript.push_back(SYSdescript('J', "QZS", ": QZSS"));
+	sysDescript.push_back(SYSdescript('I', "IRN", ": IRNSS"));
+	sysDescript.push_back(SYSdescript('S', "GPS", ": SBAS payload"));
+    sysDescript.push_back(SYSdescript(' ', "GPS", ": GPS"));
 	//fill vector with label definitions. Order is relevant.
 	labelDef.push_back(LABELdata(VERSION,	"RINEX VERSION / TYPE",	VALL, OBSOBL + NAVOBL));
 	labelDef.push_back(LABELdata(RUNBY,		"PGM / RUN BY / DATE",	VALL, OBSOBL + NAVOBL));
 	labelDef.push_back(LABELdata(COMM,		"COMMENT",				VALL, OBSOPT + NAVOPT));
 	labelDef.push_back(LABELdata(MRKNAME,	"MARKER NAME",			VALL, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(MRKNUMBER,	"MARKER NUMBER",		VALL, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(MRKTYPE,	"MARKER TYPE",			V302, OBSOBL + NAVNAP));
+	labelDef.push_back(LABELdata(MRKTYPE,	"MARKER TYPE",			V304, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(AGENCY,	"OBSERVER / AGENCY",	VALL, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(RECEIVER,	"REC # / TYPE / VERS",	VALL, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(ANTTYPE,	"ANT # / TYPE",			VALL, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(APPXYZ,	"APPROX POSITION XYZ",	VALL, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(ANTHEN,	"ANTENNA: DELTA H/E/N",	VALL, OBSOBL + NAVNAP));
-	labelDef.push_back(LABELdata(ANTXYZ,	"ANTENNA: DELTA X/Y/Z",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(ANTPHC,	"ANTENNA: PHASECENTER",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(ANTBS,		"ANTENNA: B.SIGHT XYZ",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(ANTZDAZI,	"ANTENNA: ZERODIR AZI",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(ANTZDXYZ,	"ANTENNA: ZERODIR XYZ",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(COFM,		"CENTER OF MASS XYZ",	V302, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(ANTXYZ,	"ANTENNA: DELTA X/Y/Z",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(ANTPHC,	"ANTENNA: PHASECENTER",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(ANTBS,		"ANTENNA: B.SIGHT XYZ",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(ANTZDAZI,	"ANTENNA: ZERODIR AZI",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(ANTZDXYZ,	"ANTENNA: ZERODIR XYZ",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(COFM,		"CENTER OF MASS XYZ",	V304, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(WVLEN,		"WAVELENGTH FACT L1/2",	V210, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(TOBS,		"# / TYPES OF OBSERV",	V210, OBSOBL + NAVNAP));
-	labelDef.push_back(LABELdata(SYS,		"SYS / # / OBS TYPES",	V302, OBSOBL + NAVNAP));
-	labelDef.push_back(LABELdata(SIGU,		"SIGNAL STRENGTH UNIT",	V302, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(SYS,		"SYS / # / OBS TYPES",	V304, OBSOBL + NAVNAP));
+	labelDef.push_back(LABELdata(SIGU,		"SIGNAL STRENGTH UNIT",	V304, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(INT,		"INTERVAL",				VALL, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(TOFO,		"TIME OF FIRST OBS",	VALL, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(TOLO,		"TIME OF LAST OBS",		VALL, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(CLKOFFS,	"RCV CLOCK OFFS APPL",	VALL, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(DCBS,		"SYS / DCBS APPLIED",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(PCVS,		"SYS / PCVS APPLIED",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(SCALE,		"SYS / SCALE FACTOR",	V302, OBSOPT + NAVNAP));
-	labelDef.push_back(LABELdata(PHSH,		"SYS / PHASE SHIFTS",	V302, OBSOBL + NAVNAP));
-	labelDef.push_back(LABELdata(GLSLT,		"GLONASS SLOT / FRQ #",	V302, OBSOBL + NAVNAP));
-    labelDef.push_back(LABELdata(GLPHS,     "GLONASS COD/PHS/BIS",  V302, OBSOBL + NAVNAP));
-	labelDef.push_back(LABELdata(LEAP,		"LEAP SECONDS",			VALL, OBSOPT + NAVOPT));
+	labelDef.push_back(LABELdata(DCBS,		"SYS / DCBS APPLIED",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(PCVS,		"SYS / PCVS APPLIED",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(SCALE,		"SYS / SCALE FACTOR",	V304, OBSOPT + NAVNAP));
+	labelDef.push_back(LABELdata(PHSH,		"SYS / PHASE SHIFTS",	V304, OBSOBL + NAVNAP));
+	labelDef.push_back(LABELdata(GLSLT,		"GLONASS SLOT / FRQ #",	V304, OBSOBL + NAVNAP));
+    labelDef.push_back(LABELdata(GLPHS,     "GLONASS COD/PHS/BIS",  V304, OBSOBL + NAVNAP));
 	labelDef.push_back(LABELdata(SATS,		"# OF SATELLITES",		VALL, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(PRNOBS,	"PRN / # OF OBS",		VALL, OBSOPT + NAVNAP));
 	labelDef.push_back(LABELdata(IONA,		"ION ALPHA",			V210, OBSNAP + NAVOPT));
 	labelDef.push_back(LABELdata(IONB,		"ION BETA",				V210, OBSNAP + NAVOPT));
+	labelDef.push_back(LABELdata(IONC,		"IONOSPHERIC CORR",		V304, OBSNAP + NAVOPT));
 	labelDef.push_back(LABELdata(DUTC,		"DELTA-UTC: A0,A1,T,W",	V210, OBSNAP + NAVOPT));
-	labelDef.push_back(LABELdata(IONC,		"IONOSPHERIC CORR",		V302, OBSNAP + NAVOPT));
-	labelDef.push_back(LABELdata(TIMC,		"TIME SYSTEM CORR",		V302, OBSNAP + NAVOPT));
+	labelDef.push_back(LABELdata(CORRT,		"CORR TO SYSTEM TIME",	V210, OBSNAP + NAVOPT));
+	labelDef.push_back(LABELdata(GEOT,		"D-UTC A0,A1,T,W,S,U",	V210, OBSNAP + NAVOPT));
+	labelDef.push_back(LABELdata(TIMC,		"TIME SYSTEM CORR",		V304, OBSNAP + NAVOPT));
+	labelDef.push_back(LABELdata(LEAP,		"LEAP SECONDS",			VALL, OBSOPT + NAVOPT));
 	labelDef.push_back(LABELdata(EOH,		"END OF HEADER",		VALL, OBSOBL + NAVOBL));
+
+	labelDef.push_back(LABELdata(IONC_GAL,   "GAL ",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_GPSA,  "GPSA",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_GPSB,  "GPSB",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_QZSA,  "QZSA",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_QZSB,  "QZSB",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_BDSA,  "BDSA",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_BDSB,  "BDSB",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_IRNA,  "IRNA",	VALL, NAP));
+	labelDef.push_back(LABELdata(IONC_IRNB,  "IRNB",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_GPUT,  "GPUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_GLUT,  "GLUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_GAUT,  "GAUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_BDUT,  "BDUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_BDGP,  "BDGP",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_QZUT,  "QZUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_IRUT,  "IRUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_SBUT,  "SBUT",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_GLGP,  "GLGP",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_GAGP,  "GAGP",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_QZGP,  "QZGP",	VALL, NAP));
+	labelDef.push_back(LABELdata(TIMC_IRGP,  "IRGP",	VALL, NAP));
 
 	labelDef.push_back(LABELdata(NOLABEL,	"No label detected",	VALL, NAP));
 	labelDef.push_back(LABELdata(DONTMATCH,	"Incorrect label for this RINEX version", VALL, NAP));
@@ -2343,7 +2476,81 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
     for (numberV2ObsTypes = 0; !v3obsTypes[numberV2ObsTypes].empty(); numberV2ObsTypes++);
 }
 
-/**fmtRINEXv2name format a standard RINEX V2.10 file name from the given prefix, GPS week and TOW, and for the given type.
+/**setFileDataType sets for the file type to be generated the values of the system to print (sysToPrint) and file type (fileType)
+ * taking into accout the already defined version to print and the system or systems selected.
+ * The value of sysToPrint is defined as TYPE in the RINEX VER/TYPE header record
+ * The value of fileType is defined for the file name (t in .yyt in v2.10, second D in the DD data type in V3.04)
+ * <p>Note that in RINEX V3.04 a navigation file can include ephemeris from several navigation systems,
+ * but in V2.10 a navigation file can include data for only one system.
+ * There are predefined comment lines, like the remark on printed V2.10 Galileo navigation files which are un-official versions,
+ * that could be added or not to the header on request.
+ *
+ * @param ftype the file type ('O', 'N', ...) to be generated
+ * @param setCOMMs when true, predefined comment lines are added to the header
+ * @throws error message when file type or system to print cannot be set
+ */
+void RinexData::setFileDataType(char ftype, bool setCOMMs) {
+    //identify the first system selected, and count the number of selected ones
+    char firstSys = 0;
+    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+        if (it->selSystem)  {
+            firstSys = it->system;
+            break;
+        }
+    }
+    int n = 0;
+    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++) {
+        if (it->selSystem) n++;
+    }
+    if (n == 0) throw msgNotSys;        //at least one system shall be selected
+    //set default value for sysToPrintId
+    if (n > 1) sysToPrintId = 'M';
+    else sysToPrintId = firstSys;
+    //set values according RINEX file version to be printed
+    switch (ftype) {
+        case 'O':
+        case 'o':
+            fileType = 'O';
+            break;
+        case 'N':
+        case 'n':
+            fileType = 'N';
+            switch (version) {    //version to print
+                case V210:
+                    switch (firstSys) {
+                        case 'G':    //GPS nav
+                            sysToPrintId = fileType = 'N';
+                            break;
+                        case 'R':    //GLONASS nav
+                            sysToPrintId = fileType = 'G';
+                            break;
+                        case 'E':    //Galileo nav. Un-official version
+                            sysToPrintId = fileType = 'L';
+                            if (setCOMMs) {
+								setHdLnData(COMM, COMM, "This un-official version formats b.o. data as per V3.04");
+								setHdLnData(COMM, COMM, "V2.10 does not define nav. data format for Galileo");
+                            }
+                            break;
+                        case 'S':    //SBAS nav
+                            sysToPrintId = fileType = 'B';
+                            break;
+                        default:
+                            throw "Cannot generate navigation V2.10 file for system " + string(1, firstSys);
+                            break;
+                    }
+                    break;
+                case V304:
+                    break;
+                default:
+                    throw msgVerTBD;
+            }
+            break;
+        default:
+            throw "Cannot generate files of type:" + string(1, ftype);
+    }
+}
+
+/**fmtRINEXv2name format a standard RINEX V2.10 file name from the given designator, GPS week and TOW, and for the given type.
  *
  * @param designator the file name prefix with a 4-character station name designator
  * @param week the GPS week number whitout roll out (that is, increased by 1024 for current week numbers)
@@ -2351,34 +2558,27 @@ void RinexData::setDefValues(RINEXversion v, Logger *p) {
  * @param ftype the file type ('O', 'N', ...)
  * @return the RINEX observation file name in the standard format (f.e.; PRFXdddamm.yyO)
  */
-string RinexData::fmtRINEXv2name(string designator, int week, double tow, char ftype) {
+string RinexData::fmtRINEXv2name(string designator, int week, double tow) {
 	char buffer[30];
-	//set GPS ephemeris 6/1/1980 adding given week and tow increment
-	struct tm gpsEphe = { 0 };
-	gpsEphe.tm_year = 80;
-	gpsEphe.tm_mon = 0;
-	gpsEphe.tm_mday = 6 + week * 7;
-	gpsEphe.tm_hour = 0;
-	gpsEphe.tm_min = 0;
-	gpsEphe.tm_sec = 0 + (int) tow;
-	//recompute time
-	mktime(&gpsEphe);
-	//format file name
-	sprintf(buffer, "%4.4s%03d%1c%02d.%02d%c",
-		(designator + "----").c_str(),
-		gpsEphe.tm_yday + 1,
-		'a'+gpsEphe.tm_hour,
-		gpsEphe.tm_min,
-		gpsEphe.tm_year % 100,
-		ftype);
+	char yday2year[15];
+	char dhour[5];
+    formatGPStime(yday2year, sizeof yday2year, "%j_%M.%y", "", week, tow);
+    formatGPStime(dhour, sizeof dhour, "%H", "", week, tow);
+    yday2year[3] = 'a' + atoi(dhour);
+    //format file name
+    sprintf(buffer, "%4.4s%s%c",
+            (designator + "----").c_str(),
+            yday2year,
+            fileType
+    );
 	return string(buffer);
 }
 
-/**fmtRINEXv3name format a standard RINEX V3.02 file name from the given designator code, GPS week and TOW, and for the given type.
+/**fmtRINEXv3name format a standard RINEX V3.04 file name from the given designator code, GPS week and TOW, and for the given type.
  * For V3.1 the file name could include data from MARKER NUMBER, REC # / TYPE / VERS, TIME OF FIRST OBS and TIME OF LAST OBS,
  * INTERVAL, and SYS / # / OBS TYPES records in the header.
  *
- * @param designator the file name prefix with a 4-character station name designator
+ * @param designator the file name prefix with a 9-char station name designator (XXXXMRCCC), or a 4-char site/stations name
  * @param week the GPS week number whitout roll out (that is, increased by 1024 for current week numbers)
  * @param tow the seconds from the beginning of the week
  * @param country the 3-char ISO 3166-1 country code
@@ -2386,33 +2586,24 @@ string RinexData::fmtRINEXv2name(string designator, int week, double tow, char f
  * @param country the 3-char ISO 3166-1 country code
  * @return the RINEX observation file name in the standard format (f.e.; PRFXdddamm.yyO)
  */
-string RinexData::fmtRINEXv3name(string designator, int week, double tow, char ftype, string country) {
-	char buffer[50];
-	//set value for field <SITE/STATIONMONUMENT/RECEIVER/COUNTRY/
-	//get marker number value
-	int mrkNum = 0;
-	if (getLabelFlag(MRKNUMBER)) mrkNum = atoi(markerNumber.c_str());
-	//get receiver number value
-	int rcvNum = 0;
-	if (getLabelFlag(RECEIVER)) rcvNum = atoi(rxNumber.c_str());
+string RinexData::fmtRINEXv3name(string designator, int week, double tow, string country) {
+	char buffer[50], startTime[20];
+	//set value for field <SITE/STATION/MONUMENT/RECEIVER/COUNTRY/> (XXXXMRCCC) if not given
+	if (designator.length() != 9) {
+		strcpy(buffer, ((designator + "------").substr(0, 6) + (country + "---").substr(0, 3)).c_str());	//set  buffer to XXXX--CCC
+		if (getLabelFlag(MRKNUMBER)) buffer[4] = getFirstDigit(markerNumber, '-');
+		if (getLabelFlag(RECEIVER)) buffer[5] = getFirstDigit(rxNumber, '-');
+		designator = string(buffer);
+	}
 	//set value for field <START TIME>
-	//set GPS ephemeris 6/1/1980 adding given week and tow increment
-	struct tm gpsEphe = { 0 };
-	gpsEphe.tm_year = 80;
-	gpsEphe.tm_mon = 0;
-	gpsEphe.tm_mday = 6 + week * 7;
-	gpsEphe.tm_hour = 0;
-	gpsEphe.tm_min = 0;
-	gpsEphe.tm_sec = (int) tow;
-	//recompute time
-	mktime(&gpsEphe);
+	formatGPStime(startTime, sizeof startTime, "%Y%j%H%M", "", week, tow);
 	//set value for field <FILE PERIOD> (period value and unit from TOFO, TOLO)
 	int period = 0;
 	char periodUnit = 'U';
 	double periodStart, periodEnd;
 	if (getLabelFlag(TOFO) && getLabelFlag(TOLO)) {
-		periodStart = getSecsGPSEphe (firstObsWeek, firstObsTOW);
-		periodEnd = getSecsGPSEphe (lastObsWeek, lastObsTOW);
+		periodStart = getInstantGNSStime (firstObsWeek, firstObsTOW);
+		periodEnd = getInstantGNSStime (lastObsWeek, lastObsTOW);
 		if (periodEnd > periodStart) period = (int) ((periodEnd - periodStart) / 60);
 	}
 	if (period >= 365*24*60) {
@@ -2451,72 +2642,16 @@ string RinexData::fmtRINEXv3name(string designator, int week, double tow, char f
 			frequencyUnit = 'D';
 		}
 	}
-	//set value for field <DATA TYPE> (value from systems and ftype)
-	char constellation = 'M';
-	if (systems.size() == 1) constellation = systems[0].system;
-	//format file name
-	switch(ftype) {
-	case 'O':
-	case 'o':
-	    if (designator.length() == 9) {
-            sprintf(buffer, "%9.9s_R_%04d%03d%02d%02d_%02d%c_%02d%c_%cO.rnx",
-                    designator.c_str(),
-                    gpsEphe.tm_year + 1900,
-                    gpsEphe.tm_yday + 1,
-                    gpsEphe.tm_hour,
-                    gpsEphe.tm_min,
-                    period,
-                    periodUnit,
-                    frequency,
-                    frequencyUnit,
-                    constellation);
-	    } else {
-            sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%02d%c_%cO.rnx",
-                    (designator + "----").c_str(),
-                    mrkNum,
-                    rcvNum,
-                    country.c_str(),
-                    gpsEphe.tm_year + 1900,
-                    gpsEphe.tm_yday + 1,
-                    gpsEphe.tm_hour,
-                    gpsEphe.tm_min,
-                    period,
-                    periodUnit,
-                    frequency,
-                    frequencyUnit,
-                    constellation);
-	    }
-		break;
-	case 'N':
-        if (designator.length() == 9) {
-            sprintf(buffer, "%9.9s_R_%04d%03d%02d%02d_%02d%c_%cN.rnx",
-                    designator.c_str(),
-                    gpsEphe.tm_year + 1900,
-                    gpsEphe.tm_yday + 1,
-                    gpsEphe.tm_hour,
-                    gpsEphe.tm_min,
-                    period,
-                    periodUnit,
-                    constellation);
-        } else {
-            sprintf(buffer, "%4.4s%1d%1d%3.3s_R_%04d%03d%02d%02d_%02d%c_%cN.rnx",
-                    (designator + "----").c_str(),
-                    mrkNum,
-                    rcvNum,
-                    country.c_str(),
-                    gpsEphe.tm_year + 1900,
-                    gpsEphe.tm_yday + 1,
-                    gpsEphe.tm_hour,
-                    gpsEphe.tm_min,
-                    period,
-                    periodUnit,
-                    constellation);
-        }
-		break;
-	default:
-		sprintf(buffer, "NOT_IMPLEMENTED_TYPE_%c.rnx", ftype);
-		break;
-	}
+	//compose the file name
+	sprintf(buffer, "%9.9s_R_%s_%02d%c_%02d%c_%c%c.rnx",
+			designator.c_str(),
+			startTime,
+			period,
+			periodUnit,
+			frequency,
+			frequencyUnit,
+			sysToPrintId,
+			fileType);
 	return string(buffer);
 }
 
@@ -2562,6 +2697,17 @@ RinexData::RINEXlabel RinexData::checkLabel(char *line) {
 			if ((it->ver == VALL) || (it->ver == inFileVer)) return it->labelID;
 			else return DONTMATCH;
 		}
+	return NOLABEL;
+}
+
+/**findLabelId finds for the label passed the corresponding identifier
+ *
+ * @param line is a null terminated char sequence containing the RINEX label to identify
+ * @return the RINEX label identification, NOLABEL has not a valid RINEX lable,
+ */
+RinexData::RINEXlabel RinexData::findLabelId(char *label) {
+	for (vector<LABELdata>::iterator it = labelDef.begin() ; it != labelDef.end(); ++it)
+		if (strncmp(label, it->labelVal, strlen(it->labelVal)) == 0) return it->labelID;
 	return NOLABEL;
 }
 
@@ -2629,8 +2775,8 @@ int RinexData::readV2ObsEpoch(FILE* input) {
 	if (year >= 80) year += 1900;
 	else year += 2000;
 	if (!wrongDate) {	//translate date read to week + tow
-		setWeekTow (year, month, day, hour, minute, second, epochWeek, epochTOW);
-		epochTimeTag = getSecsGPSEphe(epochWeek, epochTOW);
+		getWeekTowGPSdate (year, month, day, hour, minute, second, epochWeek, epochTOW);
+		epochTimeTag = getInstantGNSStime(epochWeek, epochTOW);
 	}
 	switch (epochFlag) {
 	case 0:
@@ -2717,7 +2863,7 @@ int RinexData::readV2ObsEpoch(FILE* input) {
 }
 
 /**readV3ObsEpoch reads from the RINEX version 3.0 observation file an epoch data
- * Note that observation records in RINEX V3.01 do not have a size limit.
+ * Note that observation records in RINEX V3.04 do not have a size limit.
  *
  * @param input the already open print stream where RINEX epoch will be read
  * @return status of observable or event data read according to:
@@ -2763,8 +2909,8 @@ int RinexData::readV3ObsEpoch(FILE* input) {
 	double second = 0.0;
 	bool wrongDate = sscanf(lineBuffer+2, "%4d %2d %2d %2d %2d%11lf", &year, &month, &day, &hour, &minute, &second) != 6 ;
 	if (!wrongDate) {	//translate date read to week + tow
-		setWeekTow (year, month, day, hour, minute, second, epochWeek, epochTOW);
-		epochTimeTag = getSecsGPSEphe(epochWeek, epochTOW);
+		getWeekTowGPSdate (year, month, day, hour, minute, second, epochWeek, epochTOW);
+		epochTimeTag = getInstantGNSStime(epochWeek, epochTOW);
 	}
 	switch (epochFlag) {
 	case 0:
@@ -2927,49 +3073,32 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 
     const string msgUnkSys("Unknown satellite system=");
 	unsigned int i, j, k, n;
-	char timeBuffer[80];
+	char timeBuffer[80], cnsId;
 	string aStr;
 	vector<string> aVectorStr;
 	vector<bool> aVectorBool;
+	int year, month, day;
+
+    double instant;
 
 	RINEXlabel labelId = lbIter->labelID;
 	switch (labelId) {
     case VERSION:    //"RINEX VERSION / TYPE"
-		if (version == V210) {
-			//print VERSION params as per V210
-			if (fileType == 'N') {
-				switch (sysToPrintId) {
-					case 'G':
-						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'N',
-								"avigation GPS", ' ', " ");
-						break;
-					case 'R':
-						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'G',
-								"LONASS navigation", ' ', " ");
-						break;
-					case 'S':
-						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', 'H',
-								":SBAS navigation", ' ', " ");
-						break;
-					default:    //should not happen
-						fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType,
-								fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
-						plog->warning(valueLabel(labelId) + msgSysUnk + string(1, sysToPrintId));
-				}
-			} else
-				fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType,
-						fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
-		} else {
-				//by default V302
-				fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 3.02, ' ', fileType,
-						fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
-		}
+        if (version == V210) {  //print VERSION params as per V210
+            if (fileType == 'O') {
+                fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType, fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
+            } else {
+                fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 2.10, ' ', fileType, fileTypeSfx.c_str(), ' ', " ");
+            }
+        } else {    //by default V304
+            fprintf(out, "%9.2f%11c%1c%-19.19s%1c%-19.19s", 3.04, ' ', fileType, fileTypeSfx.c_str(), sysToPrintId, systemIdSfx.c_str());
+        }
         break;
     case RUNBY:        //"PGM / RUN BY / DATE"
         if (date.length() == 0) {
-            //get local time and format it as needed
-            formatLocalTime(timeBuffer, sizeof timeBuffer, "%Y%m%d %H%M%S ");
-            fprintf(out, "%-20.20s%-20.20s%s%3s ", pgm.c_str(), runby.c_str(), timeBuffer, "LCL");
+            //get current UTC time and format it
+            formatUTCtime(timeBuffer, sizeof timeBuffer, "%Y%m%d %H%M%S ");
+            fprintf(out, "%-20.20s%-20.20s%s%3s ", pgm.c_str(), runby.c_str(), timeBuffer, "UTC");
         } else {
             fprintf(out, "%-20.20s%-20.20s%-20.20s", pgm.c_str(), runby.c_str(), date.c_str());
         }
@@ -3021,13 +3150,14 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
         break;
     case WVLEN:            //"WAVELENGTH FACT L1/2"	V210
         for (vector<WVLNfactor>::iterator it = wvlenFactor.begin(); it != wvlenFactor.end(); it++) {
-            fprintf(out, "%6d%6d%6d", it->wvlenFactorL1, it->wvlenFactorL2, it->nSats);
-            for (int m = 0; m < 7; m++)
-                if (m < it->nSats) fprintf(out, "%3c%3s", ' ', it->satNums[m].c_str());
+            n = it->satNums.size();
+            fprintf(out, "%6d%6d%6d", it->wvlenFactorL1, it->wvlenFactorL2, n);
+            for (i = 0; i < 7; i++)
+                if (i < n) fprintf(out, "%3c%3s", ' ', it->satNums[i].c_str());
                 else fprintf(out, "%6c", ' ');
             fprintf(out, "%-20.20s\n", valueLabel(labelId).c_str());
         }
-            return;
+        return;
     case TOBS:        //"# / TYPES OF OBSERV"		V210
         if (systems.empty()) return;
 		//Note that only V210 obsTypes are taken into account
@@ -3070,11 +3200,13 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 		break;
 	case TOFO :		//"TIME OF FIRST OBS"
 		formatGPStime (timeBuffer, sizeof timeBuffer, "  %Y    %m    %d    %H    %M  ", "%11.7lf", firstObsWeek, firstObsTOW);
-		fprintf(out, "%s%5c%-3.3s%9c", timeBuffer, ' ', obsTimeSys.c_str(), ' ');
+		// fprintf(out, "%s%5c%-3.3s%9c", timeBuffer, ' ', obsTimeSys.c_str(), ' ');
+		fprintf(out, "%s%5c%-3.3s%9c", timeBuffer, ' ', getTimeDes(obsTimeSys).c_str(), ' ');
 		break;
 	case TOLO :		//"TIME OF LAST OBS"
 		formatGPStime (timeBuffer, sizeof timeBuffer, "  %Y    %m    %d    %H    %M  ", "%11.7lf", lastObsWeek, lastObsTOW);
-		fprintf(out, "%s%5c%-3.3s%9c", timeBuffer, ' ', obsTimeSys.c_str(), ' ');
+		// fprintf(out, "%s%5c%-3.3s%9c", timeBuffer, ' ', obsTimeSys.c_str(), ' ');
+		fprintf(out, "%s%5c%-3.3s%9c", timeBuffer, ' ', getTimeDes(obsTimeSys).c_str(), ' ');
 		break;
 	case CLKOFFS :	//"RCV CLOCK OFFS APPL"
 	 	fprintf(out, "%6d%54c", rcvClkOffs, ' ');
@@ -3139,9 +3271,16 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
 					 fprintf(out, "%13c", ' ') )
 		return;
 	case LEAP :		//"LEAP SECONDS"
-	 	fprintf(out, "%6d", leapSec);
-		if (version == V302) fprintf(out, "%6d%6d%6d%36c", deltaLSF, weekLSF, dayLSF, ' ');
-		else fprintf(out, "%54c", ' ');
+		if (version == V304) {
+			for (vector<LEAPsecs>::iterator it = leapSecs.begin(); it != leapSecs.end(); it++) {
+				fprintf(out, "%6d%6d%6d%6d", it->secs, it->deltaLSF, it->weekLSF, it->dayLSF);
+				if (leapSysId == 'C') fprintf(out, "BDS%33c", ' ');
+				else fprintf(out, "%36c", ' ');
+                fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+			}
+			return;
+		}
+		fprintf(out, "%6d%54c", leapSecs[0].secs, ' ');
 		break;
 	case SATS :		//"# OF SATELLITES"
 	 	fprintf(out, "%6d%54c", numOfSat, ' ');
@@ -3158,22 +3297,100 @@ void RinexData::printHdLineData(FILE* out, vector<LABELdata>::iterator lbIter) {
             )
         }
 		return;
-	case IONC :		//"IONOSPHERIC CORR"		GNSS nav V302
-		for (vector<IONOcorr>::iterator it = ionoCorrection.begin(); it != ionoCorrection.end(); it++) {
-			fprintf(out, "%-4.4s ", it->corrType.c_str());
-			for (j = 0; j < 4; j++) {
-				if (j < it->corrValues.size()) fprintf(out, "%12.4lf", it->corrValues[j]);
-				else fprintf(out, "%12c", ' ');
+	case IONA :		//"ION ALPHA"			(in GPS NAV version V210)
+		for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); it++) {
+			if (it->corrType == IONC_GPSA) {
+				fprintf(out, "%2c", ' ');
+				for (i = 0; i < 4; i++) {
+					fprintf(out, "%12.4lE", it->corrValues[i]);
+				}
+				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
 			}
-			fprintf(out, "%7c", ' ');
-			fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
 		}
 		return;
-	case TIMC :		//"*TIME SYSTEM CORR"		GNSS nav V302
-		for (vector<TIMcorr>::iterator it = timCorrection.begin(); it != timCorrection.end(); ++it) {
-			fprintf(out, "%-4.4s %17.10lf%16.9lf%7d%5d %-5.5s %2d ",
-						(it->corrType).c_str(), it->a0, it->a1, it->refTime, it->refWeek, (it->sbas).c_str(), it->utcId );
-			fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+	case IONB :		//"ION BETA"				(in GPS NAV version V210)
+		for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); it++) {
+			if (it->corrType == IONC_GPSB) {
+				fprintf(out, "%2c", ' ');
+				for (i = 0; i < 4; i++) {
+					fprintf(out, "%12.4lE", it->corrValues[i]);
+				}
+				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+			}
+		}
+		return;
+	case IONC :		//"IONOSPHERIC CORR"		GNSS nav V304
+		for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); it++) {
+		    if (isIonoCorrection(it->corrType)) {
+				fprintf(out, "%-4.4s ", valueLabel(it->corrType).c_str());
+				for (i = 0; i < 4; i++) {
+					fprintf(out, "%12.4lE", it->corrValues[i]);
+				}
+				fprintf(out, " %c %-2.2d  ", ((((int) it->corrValues[4]) / 60 / 60) % 24) + 'A', (int) it->corrValues[5]);
+				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+		    }
+		}
+		return;
+	case DUTC :		//"DELTA-UTC: A0,A1,T,W"	(in GPS NAV version V210)
+		for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); ++it) {
+			if (it->corrType == TIMC_GPUT) {
+				fprintf(out, "%3c", ' ');
+				for (i = 0; i < 2; i++) fprintf(out, "%19.12lE", it->corrValues[i]);
+				fprintf(out, "%9d%9d", (int) it->corrValues[2], (int) it->corrValues[3]);
+				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+			}
+		}
+		return;
+	case CORRT:     //"CORR TO SYSTEM TIME"  (in GLONASS NAV version v210)
+        for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); ++it) {
+            if (it->corrType == TIMC_GLUT) {
+                formatGPStime(timeBuffer, sizeof timeBuffer, "  %Y    %m    %d", "   ", (int) it->corrValues[3], it->corrValues[2]);
+                fprintf(out, "%s%19.12lE", timeBuffer, it->corrValues[0]);
+                fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+            }
+        }
+        return;
+	case GEOT:      //"D-UTC A0,A1,T,W,S,U"  (in GEOSTATIONARY NAV version V210)
+		for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); ++it) {
+            if (it->corrType == TIMC_SBUT) {
+                for (i = 0; i < 2; i++) {
+                    fprintf(out, "%19.12lE", it->corrValues[i]);
+                }
+                fprintf(out, "%7d%5d  S%-2.2d %2d ", (int) it->corrValues[2], (int) it->corrValues[3], (int) it->corrValues[5], (int) it->corrValues[4]);
+                fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+            }
+        }
+        return;
+	case TIMC :		//"*TIME SYSTEM CORR"		GNSS nav V304
+		for (vector<CORRECTION>::iterator it = corrections.begin(); it != corrections.end(); ++it) {
+            if (isTimeCorrection(it->corrType)) {
+                switch (it->corrType) {
+                    case TIMC_GPUT: cnsId = 'G'; break;
+                    case TIMC_GLUT:
+                    case TIMC_GLGP: cnsId = 'R';
+                        it->corrValues[1] = 0;
+                        it->corrValues[2] = 0;  //T reference time zero for GLONASS
+                        it->corrValues[3] = 0;  //W reference week idem
+                        break;
+                    case TIMC_GAGP:
+                    case TIMC_GAUT: cnsId = 'E'; break;
+                    case TIMC_BDUT: cnsId = 'C'; break;
+                    case TIMC_QZUT:
+                    case TIMC_QZGP: cnsId = 'J'; break;
+                    case TIMC_IRUT:
+                    case TIMC_IRGP: cnsId = 'I'; break;
+                    case TIMC_SBUT: cnsId = 'S'; break;
+                    default: cnsId = '?';
+                }
+				fprintf(out, "%-4.4s %17.10lE%16.9lE%7d%5d %s %2d ",
+                        valueLabel(it->corrType).c_str(),
+                        it->corrValues[0], it->corrValues[1],
+                        (int) it->corrValues[2],
+                        (int) it->corrValues[3],
+                        desTimeCorrSource(timeBuffer, cnsId, (int) it->corrValues[5]),
+                        (int) it->corrValues[4]);
+				fprintf(out, "%-20s\n", valueLabel(labelId).c_str());
+            }
 		}
 		return;
 	case EOH :		//"END OF HEADER"
@@ -3279,18 +3496,17 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 				return labelId; \
 			}
 
-    char lineBuffer[100];
+    char lineBuffer[100], aChar;
 	RINEXlabel labelId;
-	WVLNfactor wf;
 	PRNobsnum prnobs;
 	string error, aStr;
 	int i, j, k, n, year, month, day, hour, minute;
 	double second, aDouble;
+	bool readOK;
 	vector<string> strList;		//a working list of strings (for observations, satellites, etc.)
 	vector<string> obsTypeIds;	//a list of observable types in V300 format
 	vector<int> anIntLst;		//a working list of integer
-	IONOcorr aIonoCorr;
-	TIMcorr aTimCorr;
+	CORRECTION aCorrection;
 
 	if (readRinexRecord(lineBuffer, sizeof lineBuffer, input))  return LASTONE;
 	labelId = checkLabel(lineBuffer);
@@ -3302,22 +3518,22 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		plog->warning (string(lineBuffer+61, 20) + msgWrongLabel);
 		return DONTMATCH;
 	case VERSION:	//"RINEX VERSION / TYPE"
-		//extract TYPE. In V210: O {N,G,H}. In V302 N, O
+		//extract TYPE. In V210: O {N,G,H}. In V304 N, O
 		fileType = lineBuffer[20];
 		fileTypeSfx = string(lineBuffer+21, 19);
 		//extract Satellite System: V210= ' ' G R S T M; V300= G R E J C S M
 		sysToPrintId = lineBuffer[40];
 		systemIdSfx = string(lineBuffer+41, 19);
-		//extract and verify version, and set values as per V302
+		//extract and verify version, and set values as per V304
 		if(sscanf(lineBuffer, "%9lf", &aDouble) !=1) aDouble = 0;
 		if ((aDouble >= 2) && (aDouble < 3)) {
 			inFileVer = V210;
 			if (aDouble != 2.1) plog->warning(valueLabel(VERSION, msgProcessV210));
-			//store VERSION parameters as per V302
+			//store VERSION parameters as per V304
 			switch (fileType) {
 			case 'O':   //in V210 observation GPS
 				if (sysToPrintId == ' ') {
-					fileType = 'G';
+                    sysToPrintId = 'G';
 					fileTypeSfx = ":GPS";
 				}
 				break;
@@ -3340,8 +3556,8 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 			}
 		}
 		else if ((aDouble >= 3) && (aDouble < 4)) {
-			inFileVer = V302;
-			if (aDouble != 3.01) plog->warning(valueLabel(VERSION, msgProcessV301));
+			inFileVer = V304;
+			if (aDouble != 3.04) plog->warning(valueLabel(VERSION, msgProcessV304));
 		}
 		else {
 			plog->warning(valueLabel(VERSION, msgProcessTBD));
@@ -3429,19 +3645,22 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		plog->finer(valueLabel(COFM) + to_string((long double) centerX) + msgSlash + to_string((long double) centerY) + msgSlash + to_string((long double) centerZ));
 		break;
 	case WVLEN:			//"WAVELENGTH FACT L1/2"	V210
-		if(sscanf(lineBuffer, "%6d%6d", &wf.wvlenFactorL1, &wf.wvlenFactorL2) != 2) LOG_ERR_AND_RETURN(string())
+		if(sscanf(lineBuffer, "%6d%6d", &i, &j) != 2) LOG_ERR_AND_RETURN(string())
 		if((sscanf(lineBuffer+12, "%6d", &k) == 0) || (k == 0)) {
 			//it is the default wavelength factor header line
-			wf.nSats = 0;
+			if (wvlenFactor.empty()) wvlenFactor.push_back(WVLNfactor(i,j));
+			else {
+				wvlenFactor[0].wvlenFactorL1 = i;
+				wvlenFactor[0].wvlenFactorL2 = j;
+			}
 		} else {
 			//it is a wavelength factor header line with satellite numbers (up to 7)
 			if (k >= 7) LOG_ERR_AND_RETURN(msgNumsat7)
-			wf.nSats = k;
 			for (i = 0, n = 18; i < k; i++, n += 6)
-				wf.satNums.push_back(string(lineBuffer+n+3, 3));
+				strList.push_back(string(lineBuffer+n+3, 3));
+			wvlenFactor.push_back(WVLNfactor(i, j, strList));
 		}
-		wvlenFactor.push_back(wf);
-		plog->finer(valueLabel(WVLEN, to_string((long long) wf.wvlenFactorL1) + msgSlash + to_string((long long) wf.wvlenFactorL2) + ":" + to_string((long long) wf.nSats)));
+		plog->finer(valueLabel(WVLEN, to_string((long long) i) + msgSlash + to_string((long long) j) + ":" + to_string((long long) strList.size())));
 		break;
 	case TOBS:		//"# / TYPES OF OBSERV"		V210
 		if((sscanf(lineBuffer, "%6d", &k) == 0) || (k == 0)) LOG_ERR_AND_RETURN(string())
@@ -3500,14 +3719,14 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 	case TOFO :		//"TIME OF FIRST OBS"
 		if(sscanf(lineBuffer, "%6d%6d%6d%6d%6d%13lf", &year, &month, &day, &hour, &minute, &second) != 6) LOG_ERR_AND_RETURN(string())
 		//use date to obtain first observable time
-		setWeekTow (year, month, day, hour, minute, second, firstObsWeek, firstObsTOW);
-		obsTimeSys = string(lineBuffer + 48, 3);
+		getWeekTowGPSdate (year, month, day, hour, minute, second, firstObsWeek, firstObsTOW);
+		obsTimeSys = getSysId(string(lineBuffer + 48, 3));
 		plog->finer(valueLabel(TOFO, to_string((long long) firstObsWeek) + msgSlash + to_string((long double) firstObsTOW)));
 		break;
 	case TOLO :		//"TIME OF LAST OBS"
 		if(sscanf(lineBuffer, "%6d%6d%6d%6d%6d%13lf", &year, &month, &day, &hour, &minute, &second) != 6) LOG_ERR_AND_RETURN(string())
 		//use date to obtain last obsrvation time. Time system ignored: same system as per TOFO assumed.
-		setWeekTow (year, month, day, hour, minute, second, lastObsWeek, lastObsTOW);
+		getWeekTowGPSdate (year, month, day, hour, minute, second, lastObsWeek, lastObsTOW);
 		plog->finer(valueLabel(TOLO, to_string((long long) lastObsWeek) + msgSlash + to_string((long double) lastObsTOW)));
 		break;
 	case CLKOFFS :	//"RCV CLOCK OFFS APPL"
@@ -3585,15 +3804,25 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		plog->finer(valueLabel(GLSLT, to_string((long long) j) + msgSlots));
 		break;
 	case LEAP :		//"LEAP SECONDS"
-		if(sscanf(lineBuffer, "%6d", &leapSec) != 1) LOG_ERR_AND_RETURN(string())
-		plog->finer(valueLabel(LEAP, to_string((long long) leapSec)));
-		//V302 additional data
-		if (isBlank(lineBuffer + 6, 6)) deltaLSF = 0;
-		else deltaLSF = stoi(string(lineBuffer + 6, 6));
-		if (isBlank(lineBuffer + 12, 6)) weekLSF = 0;
-		else weekLSF = stoi(string(lineBuffer + 12, 6));
-		if (isBlank(lineBuffer + 18, 6)) dayLSF = 0;
-		else dayLSF = stoi(string(lineBuffer + 18, 6));
+		if(sscanf(lineBuffer, "%6d", &n) != 1) LOG_ERR_AND_RETURN(string())
+        //if V304 additional data may be present
+        if (memcmp(lineBuffer + 24, "BDS", 3) == 0) aChar = 'C';    //set system time identifier
+        else aChar = 'G';
+        if (isBlank(lineBuffer + 6, 6)) i = 0;      //set i = leap delta LSF
+        else i = stoi(string(lineBuffer + 6, 6));
+        if (isBlank(lineBuffer + 12, 6)) j = 0;     //set j = week LSF
+        else j = stoi(string(lineBuffer + 12, 6));
+        if (isBlank(lineBuffer + 18, 6)) k = 0;    //set k = day LSF
+        else k = stoi(string(lineBuffer + 18, 6));
+        //check if this data is already stored
+        readOK = true;  //it means here that leapSecs record shall be added
+        for (vector<LEAPsecs>::iterator it = leapSecs.begin(); readOK && it != leapSecs.end(); it++) {
+            if ((it->sysId == aChar) && (n == it->secs)) readOK = false;
+        }
+        if (readOK) {
+            leapSecs.push_back(LEAPsecs(n, i, j, k, aChar));
+            plog->finer(valueLabel(LEAP, to_string((long long) n)));
+        }
 		break;
 	case SATS :		//"# OF SATELLITES"
 		if(sscanf(lineBuffer, "%6d", &numOfSat) != 1) LOG_ERR_AND_RETURN(string())
@@ -3618,24 +3847,86 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
 		}
 		plog->finer(valueLabel(PRNOBS, string(1, prnObsNum.back().sysPrn) + msgSlash + to_string((long long) prnObsNum.back().obsNum.size())));
 		break;
-	case IONC :		//"IONOSPHERIC CORR"	GNSS nav V302
-		aIonoCorr.corrType = string(lineBuffer,4);
-		for (i = 0, n = 0; i < 4; i++) {
-			if(sscanf(lineBuffer+5+i*12, "%12lf", &aDouble) == 1) aIonoCorr.corrValues.push_back(aDouble);
-			else {
-				aIonoCorr.corrValues.push_back(0.0);
-				n++;
+	case IONA:
+        //TODO implement reader
+	case IONB:
+	    //TODO implement reader
+        LOG_ERR_AND_RETURN(string("NOT IMPLEMENTED"))
+	case IONC :		//"IONOSPHERIC CORR"	GNSS nav V304
+		aCorrection.corrType = findLabelId(lineBuffer);
+		if (aCorrection.corrType == IONC_GAL) {
+			n = 3;
+			aCorrection.corrValues[3] = 0.0;
+		}
+		else n = 4;
+		readOK = true;
+		for (i = 0; readOK && i < n; i++) {
+			if(sscanf(lineBuffer+5+i*12, "%12lf", &aCorrection.corrValues[i]) != 1) {
+			    readOK = false;
 			}
 		}
-		ionoCorrection.push_back(aIonoCorr);
-		plog->finer(valueLabel(IONC, n==0? msgDataRead:msgErrIono+to_string((long long) n)));
+        if(readOK && sscanf(lineBuffer+5+4*12+1, "%c%d", &aChar, &n) == 2) {
+		    aCorrection.corrValues[4] = (aChar - 'A') * 60 * 60;  //refTime in seconds, as TOW
+			aCorrection.corrValues[5] = n;
+		}
+        else readOK = false;
+		if (readOK) {
+			//set has data flag in the equivalent V2 labels
+			switch (aCorrection.corrType) {
+				case IONC_GPSA:
+					setLabelFlag(IONA);
+					break;
+				case IONC_GPSB:
+					setLabelFlag(IONB);
+					break;
+				default:
+					break;
+			}
+			corrections.push_back(aCorrection);
+			plog->finer(valueLabel(IONC, msgDataRead));
+        }
+        else plog->warning(valueLabel(IONC, msgErrCorr));
 		break;
-	case TIMC :		//"TIME SYSTEM CORR"	GNSS nav V302
-		aTimCorr.corrType = string(lineBuffer,4);
-		if(sscanf(lineBuffer+5, "%17lf%16lf%7d%5d", &aTimCorr.a0, &aTimCorr.a1, &aTimCorr.refTime, &aTimCorr.refWeek) != 4) LOG_ERR_AND_RETURN(string())
-		aTimCorr.sbas = string(lineBuffer+51,5);
-		if(sscanf(lineBuffer+58, "%2d", &aTimCorr.utcId) != 1) LOG_ERR_AND_RETURN(string())
-		plog->finer(valueLabel(TIMC, msgDataRead));
+	case DUTC:
+        //TODO implement reader
+	case CORRT:
+        //TODO implement reader
+	case GEOT:
+        //TODO implement reader
+        LOG_ERR_AND_RETURN(string("NOT IMPLEMENTED"))
+	case TIMC :		//"TIME SYSTEM CORR"	GNSS nav V304
+        readOK = true;
+        aCorrection.corrType = findLabelId(lineBuffer);
+		if (aCorrection.corrType == TIMC_GLUT) {    //in GLONASS only -TauC is included
+            if(sscanf(lineBuffer+5, "%17lf", &aCorrection.corrValues[0]) != 1) readOK = false;
+			aCorrection.corrValues[1] = 0.0;
+		} else {    //in other system get a0, a1, T and W
+		    if(sscanf(lineBuffer+5+i*17, "%17lf%16lf%7d%5d", &aCorrection.corrValues[0], &aCorrection.corrValues[1], &i, &j) != 4) readOK = false;
+            aCorrection.corrValues[2] = i;
+            aCorrection.corrValues[3] = j;
+		}
+		if((sscanf(lineBuffer+5+17+16+5+5, " %5c%d", lineBuffer, &n) != 2)) readOK = false;
+        if (readOK) {
+            aCorrection.corrValues[4] = n;
+            aCorrection.corrValues[5] = idTimeCorrSource(lineBuffer);
+			//set has data flag in the equivalent V2 labels
+			switch (aCorrection.corrType) {
+				case TIMC_GPUT:
+					setLabelFlag(DUTC);
+					break;
+				case TIMC_GLUT:
+					setLabelFlag(CORRT);
+					break;
+				case TIMC_SBUT:
+					setLabelFlag(GEOT);
+					break;
+				default:
+					break;
+			}
+			corrections.push_back(aCorrection);
+        	plog->finer(valueLabel(TIMC, msgDataRead));
+        }
+        else plog->warning(valueLabel(TIMC, msgErrCorr));
 		break;
 	case EOH :		//"END OF HEADER"
 		plog->finer(valueLabel(EOH, msgFound));
@@ -3660,7 +3951,7 @@ RinexData::RINEXlabel RinexData::readHdLineData (FILE* input) {
  * @return true if EOF happens when reading, false otherwise
  */
 bool RinexData::readRinexRecord(char* rinexRec, int recSize, FILE* input) {
-	int obsLen;
+	size_t obsLen;
 	do {
 		if (fgets(rinexRec, recSize, input) == NULL) return true;
 		obsLen = strlen(rinexRec) - 1;
@@ -3713,17 +4004,31 @@ unsigned int RinexData::getSysIndex(char sysId) {
  * @return the descriptive sufix of the given system code
  */
 string RinexData::getSysDes(char s) {
-	switch (s) {
-	case ' ':
-	case 'G': return string(": GPS");
-	case 'E': return string(": Galileo");
-	case 'C': return string(": Beidou");
-	case 'S': return string(": SBAS payload");
-	case 'R': return string(": GLONASS");
-	case 'J': return string(": QZSS");
-	case 'M': return string(": Mixed");
-	}
+    for (vector<SYSdescript>::iterator it = sysDescript.begin() ; it != sysDescript.end(); ++it)
+        if (it->sysId == s) return it->sysDes;
 	return string();
+}
+
+/**getSysId provides the system identification for a given system time description
+ *
+ * @param s the system time description
+ * @return the system identifier of the given system time description
+ */
+char RinexData::getSysId(string des) {
+    for (vector<SYSdescript>::iterator it = sysDescript.begin() ; it != sysDescript.end(); ++it)
+        if (des.compare(it->timeDes) == 0) return it->sysId;
+    return ' ';
+}
+
+/**getSysTimeDes provides the system time description for a given system code
+ *
+ * @param s the one character system code (G, R, S, E, ...)
+ * @return the system time identifier of the given system code
+ */
+string RinexData::getTimeDes(char s) {
+    for (vector<SYSdescript>::iterator it = sysDescript.begin() ; it != sysDescript.end(); ++it)
+        if (it->sysId == s) return it->timeDes;
+    return string();
 }
 
 /**setSuffixes set values in descriptive suffixes of VERSION record
@@ -3745,7 +4050,11 @@ void RinexData::setSuffixes() {
                 fileTypeSfx = "LONASS NAVIGATION";
                 systemIdSfx = getSysDes('R');
                 break;
-            case 'H':
+            case 'L':
+                fileTypeSfx = " GALILEO NAVIGATION";
+                systemIdSfx = getSysDes('E');
+                break;
+            case 'B':
                 fileTypeSfx = " SBAS NAVIGATION";
                 systemIdSfx = getSysDes('S');
                 break;
@@ -3760,20 +4069,99 @@ void RinexData::setSuffixes() {
             case 'N':
                 fileTypeSfx = "AVIGATION DATA";
                 break;
+            default:
+                break;
         }
         systemIdSfx = getSysDes(sysToPrintId);
     }
 }
 
-void RinexData::setSysToPrintId(string msg) {
+/**isIonoCorrection checks if the given correction identifier is a ionospheric correction or not.
+ *
+ * @param corr the correction identifier to be checked
+ * @return true if is ionospheric, false otherwise
+ */
+bool RinexData::isIonoCorrection(RINEXlabel corr) {
+    switch (corr) {
+        case IONC_GAL:   ///< "GAL "
+        case IONC_GPSA:  ///< "GPSA"
+        case IONC_GPSB:  ///< "GPSB"
+        case IONC_QZSA:  ///< "QZSA"
+        case IONC_QZSB:  ///< "QZSB"
+        case IONC_BDSA:  ///< "BDSA"
+        case IONC_BDSB:  ///< "BDSB"
+        case IONC_IRNA:  ///< "IRNA"
+        case IONC_IRNB:  ///< "IRNB"
+            return true;
+        default:
+            return false;
+    }
+}
+
+/**isTimeCorrection checks if the given correction identifier is a time correction or not.
+ *
+ * @param corr the correction identifier to be checked
+ * @return true if is time correction, false otherwise
+ */
+bool RinexData::isTimeCorrection(RINEXlabel corr) {
+    switch (corr) {
+        case TIMC_GPUT:  ///< "GPUT"
+        case TIMC_GLUT:  ///< "GLUT"
+        case TIMC_GAUT:  ///< "GAUT"
+        case TIMC_BDUT:  ///< "BDUT"
+        case TIMC_QZUT:  ///< "QZUT"
+        case TIMC_IRUT:  ///< "IRUT"
+        case TIMC_SBUT:  ///< "SBUT"
+        case TIMC_GLGP:  ///< "GLGP"
+        case TIMC_GAGP:  ///< "GAGP"
+        case TIMC_QZGP:  ///< "QZGP"
+        case TIMC_IRGP:  ///< "IRGP"
+            return true;
+        default:
+            return false;
+    }
+}
+/**idTimeCorrSource gives the identifier of the time corrections source.
+ *The source values can be:
+ * - Snn (a MEO system-satellite identification). The identifier is the integer nn
+ * - nnn (a SBAS satellite identification broadcasting the MT12). The identifier is the integer nnn
+ * - WAAS (the SBAS identification broadcasting the MT17). The identifier is 1000
+ * - EGNOS (the SBAS identification broadcasting the MT17). The identifier is 1001
+ * - MSAS (the SBAS identification broadcasting the MT17). The identifier is 1002
+ * @param buffer the five characters defining the correction source
+ * @return 0 if the source cannot be identified, or the source identification otherwise
+ */
+int RinexData::idTimeCorrSource(char* buffer) {
     int n = 0;
-    //count the number of systems to print and set value for sysToPrintId
-    for (vector<GNSSsystem>::iterator it = systems.begin(); it != systems.end(); it++)
-        if (it->selSystem) {
-            sysToPrintId = it->system;
-            n++;
-        }
-    //if more than one selected, set Mixed value
-    if (n == 0) throw msg + "UNSELECTED";
-    else if (n > 1) sysToPrintId = 'M';
+    while ((n < 6) && (*buffer == ' ')) {
+        n++;
+        buffer++;
+    }
+    if (n == 6) return 0;
+    *(buffer+5) = 0;    //convert to a null terminated string
+    if (strcmp(buffer, "WAAS") == 0) return 1000;
+    if (strcmp(buffer, "EGNOS") == 0) return 1001;
+    if (strcmp(buffer, "MSAS") == 0) return 1002;
+    if (strchr("GRECS", *buffer) != NULL) buffer++;
+    if (sscanf(buffer, "%d", &n) == 1) return n;
+    return 0;
+}
+/**desTimeCorrSource gives the description of the time corrections source.
+ *The description can be (x = blank):
+ * - Snnxx (a MEO system-satellite identification). The identifier is the integer nn < 100
+ * - Snnnx (a SBAS satellite identification broadcasting the MT12). The identifier is the integer 99 < nnn < 1000
+ * - WAASx (the SBAS identification broadcasting the MT17). The identifier is 1000
+ * - EGNOS (the SBAS identification broadcasting the MT17). The identifier is 1001
+ * - MSASx (the SBAS identification broadcasting the MT17). The identifier is 1002
+ * @param buffer the five characters defining the correction source
+ * @return 0 if the source cannot be identified, or the source identification otherwise
+ */
+char* RinexData::desTimeCorrSource(char* buffer, char system, int satNum) {
+    if (satNum < 100) sprintf(buffer, "%c%-2.2d  ", system, satNum);
+    else if (satNum < 1000) sprintf(buffer, "%c%-3.3d ", system, satNum);
+    else if (satNum == 1000) strcpy(buffer, "WAAS ");
+    else if (satNum == 1001) strcpy(buffer, "EGNOS");
+    else if (satNum == 1002) strcpy(buffer, "MSAS ");
+    else strcpy(buffer, "     ");
+    return buffer;
 }

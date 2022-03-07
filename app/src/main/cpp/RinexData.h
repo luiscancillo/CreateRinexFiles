@@ -4,17 +4,10 @@
  * Methods are provided to store data into RinexData objects, print them to RINEX files,
  * and to perform the reverse operation: read RINEX files data and store them into RinexData objects.
  *
- *Copyright 2015 Francisco Cancillo
+ *Copyright 2015,2019 Francisco Cancillo
  *<p>
- *This file is part of the RXtoRINEX tool.
+ *This file is part of the toRINEX tool.
  *<p>
- *RXtoRINEX is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
- *as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
- *RXtoRINEX is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
- *warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- *See the GNU General Public License for more details.
- *<p>
- *A copy of the GNU General Public License can be found at <http://www.gnu.org/licenses/>.
  *<p>Ver.	|Date	|Reason for change
  *<p>---------------------------------
  *<p>V1.0	|2/2015	|First release
@@ -28,6 +21,7 @@
  *<p>               |Added msg variables
  *<p>V2.2   |6/2019 |Simplified the processing of signal names for V2 RINEX
  *                  |Simplified the processing of systems and signals using new data structure for systems
+ *<p>V2.3   |11/2019|Added capabilities to include iono and time corrections in navigation header files
  */
 #ifndef RINEXDATA_H
 #define RINEXDATA_H
@@ -42,23 +36,30 @@ using namespace std;
 
 //@cond DUMMY
 //maximum number of lines and columns in the RINEX broadcast orbit array
-#define BO_MAXLINS 12
+#define BO_MAXLINS 8
 #define BO_MAXCOLS 4
-#define BO_IONOA_LIN BO_MAXLINS-4   //the line index for ionospheric corrections
-#define BO_IONOB_LIN BO_MAXLINS-3   //the line index for ionospheric corrections
-#define BO_TIME_LIN BO_MAXLINS-2   //the line index for time systems corrections
-#define BO_LEAP_LIN BO_MAXLINS-1  //the line index for leap seconds corrections
-//Number of Broadcast Orbit lines for Glonass
-#define BO_MAXLINS_GLO 4
-//Number of Broadcast Orbit lines for GPS
+#define BO_LINSTOTAL 13     //is BO_MAXLINS + the five following correction types
+#define BO_LIN_IONOA BO_LINSTOTAL-5   //the line index for ionospheric alpha corrections
+#define BO_LIN_IONOB BO_LINSTOTAL-4   //the line index for ionospheric beta corrections
+#define BO_LIN_TIMEU BO_LINSTOTAL-3   //the line index for time systems corrections to UTC
+#define BO_LIN_TIMEG BO_LINSTOTAL-2   //the line index for time systems corrections to GPS
+#define BO_LIN_LEAPS BO_LINSTOTAL-1  //the line index for leap seconds corrections
+//Number of Broadcast Orbit lines to print for each GPS satellite epoch and total ephemeris
 #define BO_MAXLINS_GPS 8
-//Number of Broadcast Orbit lines for Galileo
+#define BO_TOTEPHE_GPS 26
+//Number of Broadcast Orbit lines to print for each Glonass satellite epoch
+#define BO_MAXLINS_GLO 4
+#define BO_TOTEPHE_GLO 12
+//Number of Broadcast Orbit lines to print for each Galileo satellite epoch
 #define BO_MAXLINS_GAL 8
-//Number of Broadcast Orbit lines for Beidou
+#define BO_TOTEPHE_GAL 25
+//Number of Broadcast Orbit lines to print for each Beidou satellite epoch
 #define BO_MAXLINS_BDS 8
-//Number of Broadcast Orbit lines for SBAS
+#define BO_TOTEPHE_BDS 26
+//Number of Broadcast Orbit lines to print for each SBAS satellite epoch
 #define BO_MAXLINS_SBAS 4
-//Number of Broadcast Orbit lines for QZSS
+#define BO_TOTEPHE_SBAS 12
+//Number of Broadcast Orbit lines to print for each QZSS satellite epoch
 #define BO_MAXLINS_QZSS 4
 //Other related constants
 const string IONO_GAL_DES("GAL");
@@ -110,12 +111,12 @@ const string msgWrongPRN("Wrong PRN");
 const string msgNoLabel("No header label found in ");
 const string msgWrongLabel(" cannot be used in this RINEX version");
 const string msgProcessV210("File processed as per V2.1");
-const string msgProcessV301("File processed as per 3.01");
+const string msgProcessV304("File processed as per 3.04");
 const string msgProcessTBD("Cannot cope with this input file version. TBD assumed");
 const string msgNumsat7(" Number of sats >=7");
 const string msgTransit("Cannot cope with Transit data");
 const string msgWrongFormat("Wrong data format in this line. ");
-const string msgObsNoTrans(" Observable type cannot be traslated to V302");
+const string msgObsNoTrans(" Observable type cannot be traslated to V304");
 const string msgMisCode("Mismatch in number of expected and existing code types");
 const string msgNumTypesNo("Number of observation types not specified");
 const string msgTypes(" types");
@@ -129,7 +130,7 @@ const string msgWrongCont(" Continuation line not following a regular one");
 const string msgInternalErr("Internal error: invalid label Id in readHdLineData");
 const string msgFound("found");
 const string msgDataRead(" data read");
-const string msgErrIono(" errors in iono corrections:");
+const string msgErrCorr(" error reading corrections line");
 const string msgContExp("continuation expected, but received ");
 const string msgFmtCont("wrong format in continuation line");
 const string msgPhPerType(" phase shift correction, for signal and sats ");
@@ -148,8 +149,15 @@ const string msgEpheSat("Ephemeris for sat ");
 const string msgTimeTag(" time tag ");
 const string msgAlrEx(". ALREADY EXIST");
 const string msgSaved(". SAVED");
+const string msgNoMem(". NOT SAVED:");
+const string msgNoBO("Error Broad.Orb. less than expected");
+const string msgBadFileName("Output file name cannot be set");
+const string msgWrongVer("Wrong data in RINEX VERSION / TYPE record");
 
 const string errorLabelMis("Internal error. Wrong argument types in RINEX label identifier=");
+//time constant
+const struct tm UTCepoch = {.tm_year = 70,.tm_mon = 0,.tm_mday = 1,.tm_hour = 0,.tm_min = 0,.tm_sec = 0,.tm_isdst = -1};
+
 //@endcond
 
 /**RinexData class defines a data container for the RINEX file header records, epoch observables, and satellite navigation ephemeris.
@@ -215,13 +223,14 @@ public:
 	/// RINEX versions known in the current implementation of this class
 	enum RINEXversion {
 		V210 = 0,		///< RINEX version V2.10
-		V302,			///< RINEX version V3.02
+		V304,			///< RINEX version V3.04
 		VALL,			///< for features applicable to all versions 
 		VTBD			///< To Be Defined version 
 	};
 	/// RINEX label identifiers defined for each RINEX file header record
 	enum RINEXlabel {
-		VERSION = 0,///< "RINEX VERSION / TYPE"	(System can be: in V210=G,R,S,T,M; in V302=G,R,E,S,M) 
+        NOLABEL = 0,	///< No lable detected (to manage error messages)
+		VERSION,    ///< "RINEX VERSION / TYPE"	(System can be: in V210=G,R,S,T,M; in V304=G,R,E,S,M)
 		RUNBY,		///< "PGM / RUN BY / DATE" (All versions)
 		COMM,		///< "COMMENT" (All versions)
 		MRKNAME,	///< "MARKER NAME" (All versions)
@@ -232,40 +241,65 @@ public:
 		ANTTYPE,	///< "ANT # / TYPE" (All versions)
 		APPXYZ,		///< "APPROX POSITION XYZ" (All versions)
 		ANTHEN,		///< "ANTENNA: DELTA H/E/N" (All versions)
-		ANTXYZ,		///< "ANTENNA: DELTA X/Y/Z" (in version V302)
-		ANTPHC,		///< "ANTENNA: PHASECENTER" (in version V302)
-		ANTBS,		///< "ANTENNA: B.SIGHT XYZ" (in version V302)
-		ANTZDAZI,	///< "ANTENNA: ZERODIR AZI" (in version V302)
-		ANTZDXYZ,	///< "ANTENNA: ZERODIR XYZ" (in version V302)
-		COFM,		///< "CENTER OF MASS XYZ" (in version V302)
+		ANTXYZ,		///< "ANTENNA: DELTA X/Y/Z" (in version V304)
+		ANTPHC,		///< "ANTENNA: PHASECENTER" (in version V304)
+		ANTBS,		///< "ANTENNA: B.SIGHT XYZ" (in version V304)
+		ANTZDAZI,	///< "ANTENNA: ZERODIR AZI" (in version V304)
+		ANTZDXYZ,	///< "ANTENNA: ZERODIR XYZ" (in version V304)
+		COFM,		///< "CENTER OF MASS XYZ" (in version V304)
 		WVLEN,		///< "WAVELENGTH FACT L1/2" (in version V210)
 		TOBS,		///< "# / TYPES OF OBSERV" (in version V210)
-		SYS,		///< "SYS / # / OBS TYPES" (in version V302)
-		SIGU,		///< "SIGNAL STRENGTH UNIT" (in version V302)
+		SYS,		///< "SYS / # / OBS TYPES" (in version V304)
+		SIGU,		///< "SIGNAL STRENGTH UNIT" (in version V304)
 		INT,		///< "INTERVAL" (All versions)
 		TOFO,		///< "TIME OF FIRST OBS" (All versions)
 		TOLO,		///< "TIME OF LAST OBS" (All versions)
 		CLKOFFS,	///< "RCV CLOCK OFFS APPL" (All versions)
-		DCBS,		///< "SYS / DCBS APPLIED" (in version V302)
-		PCVS,		///< "SYS / PCVS APPLIED" (in version V302)
-		SCALE,		///< "SYS / SCALE FACTOR" (in version V302)
-		PHSH,		///< "SYS / PHASE SHIFTS" (in version V302)
-		GLSLT,		///< "GLONASS SLOT / FRQ #" (in version V302)
-        GLPHS,      ///< "GLONASS COD/PHS/BIS" (in version V302)
-		LEAP,		///< "LEAP SECONDS" (All versions)
+		DCBS,		///< "SYS / DCBS APPLIED" (in version V304)
+		PCVS,		///< "SYS / PCVS APPLIED" (in version V304)
+		SCALE,		///< "SYS / SCALE FACTOR" (in version V304)
+		PHSH,		///< "SYS / PHASE SHIFTS" (in version V304)
+		GLSLT,		///< "GLONASS SLOT / FRQ #" (in version V304)
+        GLPHS,      ///< "GLONASS COD/PHS/BIS" (in version V304)
 		SATS,		///< "# OF SATELLITES" (All versions)
 		PRNOBS,		///< "PRN / # OF OBS" (All versions)
 
 		IONA,		///< "ION ALPHA"			(in GPS NAV version V210)
 		IONB,		///< "ION BETA"				(in GPS NAV version V210)
-		DUTC,		///< "DELTA-UTC: A0,A1,T,W"	(in GPS NAV version V210)
-		IONC,		///< "IONOSPHERIC CORR"		(in GNSS NAV version V302)
-		TIMC,		///< "TIME SYSTEM CORR"		(in GNSS NAV version V302)
+		IONC,		///< "IONOSPHERIC CORR"		(in GNSS NAV version V304)
+        DUTC,		///< "DELTA-UTC: A0,A1,T,W"	(in GPS NAV version V210)
+        CORRT,      ///< "CORR TO SYSTEM TIME"  (in GLONASS NAV version v210)
+        GEOT,       ///< "D-UTC A0,A1,T,W,S,U"  (in GEOSTATIONARY NAV version V210)
+		TIMC,		///< "TIME SYSTEM CORR"		(in GNSS NAV version V304)
+        LEAP,		///< "LEAP SECONDS" (All versions)
 
 		EOH,		///< "END OF HEADER"
+
+                    ///< Labels for ionospheric corrections
+        IONC_GAL,   ///< "GAL "
+        IONC_GPSA,  ///< "GPSA"
+        IONC_GPSB,  ///< "GPSB"
+        IONC_QZSA,  ///< "QZSA"
+        IONC_QZSB,  ///< "QZSB"
+        IONC_BDSA,  ///< "BDSA"
+        IONC_BDSB,  ///< "BDSB"
+        IONC_IRNA,  ///< "IRNA"
+        IONC_IRNB,  ///< "IRNB"
+                    ///< Labels for time correction
+        TIMC_GPUT,  ///< GPUT = GPS - UTC
+        TIMC_GLUT,  ///< GLUT = GLO - UTC
+        TIMC_GAUT,  ///< GAUT = GAL - UTC
+        TIMC_BDUT,  ///< BDUT = BDS - UTC
+        TIMC_QZUT,  ///< QZUT = QZS - UTC
+        TIMC_IRUT,  ///< IRUT = IRN - UTC
+        TIMC_SBUT,  ///< SBUT = SBAS - UTC
+        TIMC_GLGP,  ///< GLGP = GLO - GPS
+        TIMC_GAGP,  ///< GAGP = GAL - GPS
+        TIMC_BDGP,  ///< BDGP = BDS - GPS Note:not in RINEX 3.04!
+        TIMC_QZGP,  ///< QZGP = QZS - GPS
+        TIMC_IRGP,  ///< IRGP = IRN - GPS
 					///< PSEUDOLABELS:
 		INFILEVER,	///< To access VERSION data read from an input file
-		NOLABEL,	///< No lable detected (to manage error messages)
 		DONTMATCH,	///< Label do not match with RINEX version (to manage error messages)
 		LASTONE		///< Las item: last RINEXlabel. Also EOF found when reading.
 		};
@@ -276,23 +310,23 @@ public:
 	RinexData(RINEXversion ver, string prg, string rby);
 	~RinexData(void);
 	//methods to set RINEX line header record data values storing them in the RinexData object
-	bool setHdLnData(RINEXlabel rl);
 	bool setHdLnData(RINEXlabel rl, RINEXlabel a, const string &b);
+	bool setHdLnData(RINEXlabel rl, RINEXlabel a, const double (&b)[4], int c, int d);
+	bool setHdLnData(RINEXlabel rl, char a = ' ');
 	bool setHdLnData(RINEXlabel rl, char a, int b, const vector<int> &c);
 	bool setHdLnData(RINEXlabel rl, char a, int b, const vector<string> &c);
-	bool setHdLnData(RINEXlabel rl, char a, const string &b, double c, double d, double e);
-    bool setHdLnData(RINEXlabel rl, char a, const string &b, double c, const vector<string> &d);
-	bool setHdLnData(RINEXlabel rl, char a, const string &b, const string &c);
-//	bool setHdLnData(RINEXlabel rl, char a, const vector<string> &b);
+	bool setHdLnData(RINEXlabel rl, char a, const string& b, double c, double d, double e);
+    bool setHdLnData(RINEXlabel rl, char a, const string& b, double c, const vector<string> &d);
+	bool setHdLnData(RINEXlabel rl, char a, const string& b, const string& c);
     bool setHdLnData(RINEXlabel rl, char a, vector<string> &b);
 	bool setHdLnData(RINEXlabel rl, double a, double b=0.0, double c=0.0);
-	bool setHdLnData(RINEXlabel rl, int a, int b=0);
+	bool setHdLnData(RINEXlabel rl, int a, int b=0, int c=0, int d=0, char e=' ');
 	bool setHdLnData(RINEXlabel rl, int a, int b, const vector<string> &c);
 	bool setHdLnData(RINEXlabel rl, const string &a, const string &b=string(), const string &c=string());
-	bool setHdLnData(RINEXlabel rl, const string &a, const vector<double> &b);
-	bool setHdLnData(RINEXlabel rl, const string &a, double b, double c=0.0, int d=0, int e=0, const string &f=string(), int g=0);
+	bool setHdLnData(RINEXlabel rl, const string &a, double b);
 	//methods to obtain line header records data stored in the RinexData object
 	bool getHdLnData(RINEXlabel rl, RINEXlabel &a, string &b, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, RINEXlabel &a, double (&b)[4], int &c, int &d, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, int &b, vector <int> &c, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, int &b, vector <string> &c, unsigned int index = 0);
 	bool getHdLnData(RINEXlabel rl, char &a, string &b, double &c, double &d, double &e);
@@ -303,14 +337,14 @@ public:
 	bool getHdLnData(RINEXlabel rl, double &a, char &b, char &c);
 	bool getHdLnData(RINEXlabel rl, double &a, double &b, double &c);
 	bool getHdLnData(RINEXlabel rl, int &a);
-    bool getHdLnData(RINEXlabel rl, int &a, double &b, string &c);
-	bool getHdLnData(RINEXlabel rl, int &a, int &b, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, int &a, int &b, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, int &a, int &b, vector <string> &c, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, int &a, int &b, int &c, int &d, char &e, unsigned int index = 0);
+    bool getHdLnData(RINEXlabel rl, int &a, double &b, char &c);
 	bool getHdLnData(RINEXlabel rl, string &a);
 	bool getHdLnData(RINEXlabel rl, string &a, string &b);
 	bool getHdLnData(RINEXlabel rl, string &a, string &b, string &c);
-	bool getHdLnData(RINEXlabel rl, string &a, vector <double> &b, unsigned int index = 0);
-    bool getHdLnData(RINEXlabel rl, string &a, double &b, unsigned int index = 0);
-	bool getHdLnData(RINEXlabel rl, string &a, double &b, double &c, int &d, int &e, string &f, int &g, unsigned int index = 0);
+	bool getHdLnData(RINEXlabel rl, string &a, double &b, unsigned int index = 0);
 	//methods to process header records data
 	RINEXlabel lblTOid(string label);
 	string idTOlbl(RINEXlabel id);
@@ -331,7 +365,7 @@ public:
 	void clearNavData();
 	//methods to print RINEX files
 	string getObsFileName(string prefix, string country = "---"); 
-	string getNavFileName(string prefix, char suffix = 'N', string country = "---");
+	string getNavFileName(string prefix, string country = "---");
 	void printObsHeader(FILE* out);
 	void printObsEpoch(FILE* out);
 	void printObsEOF(FILE* out);
@@ -344,9 +378,9 @@ public:
 	int readNavEpoch(FILE* input);
 
 private:
-	struct LABELdata {	//A template for data related to each defined RINEX label and related record
-		RINEXlabel labelID;	//The header label identification
-		const char* labelVal;		//The RINEX label value in columns 61-80
+	struct LABELdata {	        //A template for data related to each defined RINEX label and related record
+		RINEXlabel labelID;	    //The header label identification
+		const char* labelVal;	//The RINEX label value in columns 61-80
 		RINEXversion ver;	//The RINEX version where this label is defined
 		unsigned int type;	//The type of the record with this label
 		bool hasData;		//If there are data stored for this record or not
@@ -371,13 +405,25 @@ private:
 	};
 	vector <LABELdata> labelDef;	//A place to store data for all RINEX header labels
 	unsigned int labelIdIdx;		//an index to iterater over labelDef with get1stLabelId and getNextLabelId 
+    struct SYSdescript {     //A template to define a table containing descriptions related to syste identification
+        char sysId;         //the system identification (G, R, E, C, ...)
+        string timeDes;     //the related system time description
+        string sysDes;      //the related system description to be used in header records
+        //constructor
+        SYSdescript (char s, string td, string sd) {
+            sysId = s;
+            timeDes = td;
+            sysDes = sd;
+        }
+    };
+    vector <SYSdescript> sysDescript;
 	//RINEX header data grouped by line type/label
 	//"RINEX VERSION / TYPE"
 	RINEXversion inFileVer;	//The RINEX version of the input file (when applicable)
 	RINEXversion version;	//The RINEX version of the output file
-	char fileType;			//V210:O, N(GPS nav), G(GLONASS nav), H(Geo nav), ...; V302:O, N, M
+	char fileType;			//V210:O, N(GPS nav), G(GLONASS nav), H(Geo nav), ...; V304:O, N, M
 	string fileTypeSfx;		//a suffix to better describe the file type
-	char sysToPrintId;			//System to print identifier: V210=G(GPS), R(GLO), S(SBAS), T, M(multiple); V302=G, R, E (Galileo), J, C, S, M
+	char sysToPrintId;		//System to print identifier: V210=G(GPS), R(GLO), S(SBAS), T, M(multiple); V304=G, R, E (Galileo), J, C, S, M
 	string systemIdSfx;		//a suffix to better describe the system
 	//"PGM / RUN BY / DATE"
 	string pgm;				//Program used to create current file
@@ -388,7 +434,7 @@ private:
 	//"* MARKER NUMBER"
 	string markerNumber;	//Number of antenna marker (HUMAN)
 	//"MARKER TYPE"
-	string markerType;		//Marker type as per V302
+	string markerType;		//Marker type as per V304
 	//"OBSERVER / AGENCY"
 	string observer;		//Name of observer
 	string agency;			//Name of agency
@@ -407,59 +453,51 @@ private:
 	double antHigh;		//Antenna height: Height of the antenna reference point (ARP) above the marker
 	double eccEast;		//Horizontal eccentricity of ARP relative to the marker (east/north)
 	double eccNorth;
-	//"* ANTENNA: DELTA X/Y/Z"	V302
+	//"* ANTENNA: DELTA X/Y/Z"	V304
 	double antX;
 	double antY;
 	double antZ;
-	//"* ANTENNA: PHASECENTER"	V302
+	//"* ANTENNA: PHASECENTER"	V304
 	char antPhSys;
 	string antPhCode;
 	double antPhNoX;
 	double antPhEoY;
 	double antPhUoZ;
-	//"* ANTENNA: B.SIGHT XYZ"	V302
+	//"* ANTENNA: B.SIGHT XYZ"	V304
 	double antBoreX;
 	double antBoreY;
 	double antBoreZ;
-	//"* ANTENNA: ZERODIR AZI"	V302
+	//"* ANTENNA: ZERODIR AZI"	V304
 	double antZdAzi;
-	//"* ANTENNA: ZERODIR XYZ"	V302
+	//"* ANTENNA: ZERODIR XYZ"	V304
 	double antZdX;
 	double antZdY;
 	double antZdZ;
-	//"* CENTER OF MASS XYZ"	V302
+	//"* CENTER OF MASS XYZ"	V304
 	double centerX;
 	double centerY;
 	double centerZ;
 	//"WAVELENGTH FACT L1/2"	V210
 	struct WVLNfactor {
-		int wvlenFactorL1;
-		int wvlenFactorL2;
-		int nSats;		//number of satellites these factors apply
-		vector <string> satNums;
+		int wvlenFactorL1;  //1:Full cycle ambiguities; 2:Half cycle ambiguities (squaring)
+		int wvlenFactorL2;  //1,2 as above; 0: Single frequency instrument
+		vector <string> satNums;    //empty for the default wavelength factor (wvlenFactor[0])
 		//constructors
-		WVLNfactor () {
-			wvlenFactorL1 = 1;
-			wvlenFactorL2 = 1;
-			nSats = 0;
-		}
 		WVLNfactor (int wvl1, int wvl2) {	//for the default wavelength record
 			wvlenFactorL1 = wvl1;
 			wvlenFactorL2 = wvl2;
-			nSats = 0;
 		}
 		WVLNfactor (int wvl1, int wvl2, const vector<string> &sats) {
 			wvlenFactorL1 = wvl1;
 			wvlenFactorL2 = wvl2;
-			nSats = sats.size();
 			satNums = sats;
 		}
 	};
 	vector <WVLNfactor> wvlenFactor;
 	//"# / TYPES OF OBSERV"		V210
-	//"SYS / # / OBS TYPES"		V302
+	//"SYS / # / OBS TYPES"		V304
     struct OBSmeta {    //Defines metadata to manage observables
-        string id;  //identifier of each obsType type: C1C, L1C, D1C, S1C... (see RINEX V302 document: 5.1 Observation codes)
+        string id;  //identifier of each obsType type: C1C, L1C, D1C, S1C... (see RINEX V304 document: 5.1 Observation codes)
         bool sel;   //if true, the obsType is selected, that is, their data will be taken into account
         bool prt;   //if true, the obsType will be printed (it is selected and its printable in the current version)
         //constructor
@@ -470,7 +508,7 @@ private:
         }
     };
 	struct GNSSsystem {	//Defines data for each GNSS system that can provide data to the RINEX file. Used for all versions
-		char system;	//system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo). See RINEX V302 document: 3.5 Satellite numbers
+		char system;	//system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo). See RINEX V304 document: 3.5 Satellite numbers
 		bool selSystem;	//a flag stating if the system is selected (will pass filtering or not)
         vector <OBSmeta> obsTypes;
         vector <int> selSat;       //the list of selected satelites to be printed. If empty all of them will be printed
@@ -482,7 +520,7 @@ private:
 			//insert all obsType having equivalence in RINEX V2, initially set to NOT SELECTED and NOT PRINTABLE
             for (int i = 0;  !v3obsTypes[i].empty() ; i++) obsTypes.push_back(OBSmeta(v3obsTypes[i], false, false));
             //for each obsTypes passed in argument, it already inserted set it as SELECTED
-            //if not, inset it as SELECTED and NOT PRINTABLE
+            //if not, insert it as SELECTED and NOT PRINTABLE
             vector <OBSmeta> ::iterator itobs;
             for (vector<string>::iterator iti = obsT.begin(); iti != obsT.end(); iti++) {
                 for (itobs = obsTypes.begin(); (itobs != obsTypes.end()) && ((*iti).compare(itobs->id) != 0); itobs++);
@@ -492,20 +530,20 @@ private:
         };
 	};
 	vector <GNSSsystem> systems;
-	//"* SIGNAL STRENGTH UNIT"	V302
+	//"* SIGNAL STRENGTH UNIT"	V304
 	string signalUnit;
 	//"* INTERVAL"				VALL
 	double obsInterval;
 	//"TIME OF FIRST OBS"		VALL
 	int firstObsWeek;
 	double firstObsTOW;
-	string obsTimeSys;
+	char obsTimeSys;
 	//"* TIME OF LAST OBS"		VALL
 	int lastObsWeek;
 	double lastObsTOW;
 	//"* RCV CLOCK OFFS APPL"		VALL
 	int rcvClkOffs;
-	//"* SYS / DCBS APPLIED"		V302
+	//"* SYS / DCBS APPLIED"		V304
 	struct DCBSPCVSapp {	//defines data for corrections of differential code biases (DCBS)
 							//or corrections of phase center variations (PCVS)
 		int sysIndex;		//the system index in vector systems
@@ -521,9 +559,9 @@ private:
 		};
 	};
 	vector <DCBSPCVSapp> dcbsApp;
-	//"*SYS / PCVS APPLIED		V302
+	//"*SYS / PCVS APPLIED		V304
 	vector <DCBSPCVSapp> pcvsApp;
-	//"* SYS / SCALE FACTOR"	V302
+	//"* SYS / SCALE FACTOR"	V304
 	struct OSCALEfact {	//defines scale factor applied to observables
 		int sysIndex;	//the system index in vector systems
 		int factor;		//a factor to divide stored observables with before use (1,10,100,1000)
@@ -536,7 +574,7 @@ private:
 		};
 	};
 	vector <OSCALEfact> obsScaleFact;
-	//"* SYS / PHASE SHIFTS		V302
+	//"* SYS / PHASE SHIFTS		V304
 	struct PHSHcorr {	//defines Phase shift correction used to generate phases consistent w/r to cycle shifts
 		int sysIndex;	//the system index in vector systems
 		string obsCode;	//Carrier phase observable code (Type-Band-Attribute)
@@ -574,10 +612,28 @@ private:
     };
     vector <GLPHSbias> gloPhsBias;
 	//"* LEAP SECONDS"			VALL
+    struct LEAPsecs {
+        int secs;       //number of leap seconds
+        int deltaLSF;
+        int weekLSF;
+        int dayLSF;
+        char sysId;     //system identifier
+        //constructor
+        LEAPsecs (int se, int de, int we, int da, char sy) {
+            secs = se;
+            deltaLSF = de;
+            weekLSF = we;
+            dayLSF = da;
+            sysId = sy;
+        }
+    };
+    vector <LEAPsecs> leapSecs;
+
 	int leapSec;
-	int deltaLSF;		//V302 only
-	int weekLSF;		//V302 only
-	int dayLSF;			//V302 only
+	int leapDeltaLSF;		//V304 only
+	int leapWeekLSF;		//V304 only
+	int leapDN;			    //V304 only
+    char leapSysId;         //V304 only
 	//"* # OF SATELLITES"		VALL
 	int numOfSat;
 	//"* PRN / # OF OBS"			VALL
@@ -595,47 +651,43 @@ private:
 		};
 	};
 	vector <PRNobsnum> prnObsNum;
-	//"* IONOSPHERIC CORR		(in GNSS NAV version V302)
-	struct IONOcorr {	//defines ionospheric correction parameters
-		string corrType;	//Correction type GAL(Galileo:ai0-ai2),GPSA(GPS:alpha0-alpha3),GPSB(GPS:beta0-beta3)
-		vector <double> corrValues;
-		//constructors
-		IONOcorr () {
-		};
-		IONOcorr (string ct, const vector<double> &corr) {
-			corrType = ct;
-			corrValues = corr;
-		};
+    //"* IONOSPHERIC CORR		(in GNSS NAV version V304)
+	//"* TIME SYSTEM CORR		(in GNSS NAV version V304)
+	struct CORRECTION {	//defines ionospheric and time corrections
+        RINEXlabel  corrType;	//Correction type: IONO_XXX or TIME_YYYY defined above
+        double corrValues[6];   //Correction values depend on the correction type:
+            /* For IONO_XXXX:
+                  -[0 - 3] are the parameters (alpha0-alpha3, beta0-beta3, ai0-ai2 ...)
+                  -[4] the Time mark (time of week)
+                  -[5] source: satellite number
+               For TIME_XXXX:
+                  -[0 - 1] are the a0 and a1 coefficients of linear polynomial
+                  -[2] the Reference time (time of week)
+                  -[3] the Refernece week number
+                  -[4] the UTC identifier
+                  -[5] source: MEO satellite number (if < 100), or SBAS satnumber if MT12, or
+                    if MT17, 1000 = WAAS, 1001 = EGNOS, 1002 = MSAS, ...*/
+		//constructorS
+        CORRECTION () {
+        }
+        //TODO CORRECTION (RINEXlabel ct, double* ionoParOrtimeCoefAndRef, int timeMarkOrIdUTC, int sourceId) {
+        CORRECTION (RINEXlabel ct, const double (&ionoParOrtimeCoefAndRef)[4], int timeMarkOrIdUTC, int sourceId) {
+            corrType = ct;
+            for (int i = 0; i < 4; ++i) {
+                //TODO corrValues[i] = *(ionoParOrtimeCoefAndRef + i);
+                corrValues[i] = ionoParOrtimeCoefAndRef[i];
+            }
+            //TODO verify
+//            memcpy(corrValues, ionoParOrtimeCoefAndRef, sizeof(double) * 4);
+            corrValues[4] = timeMarkOrIdUTC;
+            corrValues[5] = sourceId;
+        }
 	};
-	vector <IONOcorr> ionoCorrection;
-	//"* TIME SYSTEM CORR		(in GNSS NAV version V302)
-	struct TIMcorr {	//defines correctionsto transform the system time to UTC or other time systems
-		string corrType;	//Correction type: GAUT, GPUT, SBUT, GLUT, GPGA, GLGP
-		double a0, a1;		//Coefficients of 1-deg polynomial
-		int refTime;		//reference time for polynomial (seconds into GPS/GAL week)
-		int refWeek;		//Reference week number
-		string sbas;		//EGNOS, WAAS, or MSAS, or Snn (with nn = PRN-100 of satellite
-		int utcId;			//UTC identifier
-		//constructors
-		TIMcorr () {
-		};
-		TIMcorr (string ct, double ca0, double ca1, int rs, int rw, const string &sb, int ui) {
-			corrType = ct;
-			a0 = ca0;
-			a1 = ca1;
-			refTime = rs;
-			refWeek = rw;
-			sbas = sb;
-			utcId = ui;
-		};
-	};
-	vector <TIMcorr> timCorrection;
-	int deltaUTCt;
-	int deltaUTCw;
+	vector <CORRECTION> corrections;
 	//Epoch time parameters
 	int epochWeek;			//Extended (0 to NO LIMIT) GPS/GAL week number of current epoch
 	double epochTOW;		//Seconds into the current week, accounting for clock bias, when the current measurement was made
-	double epochClkOffset;	//Recieve clock offset applied to epoch time and measurements
+	double epochClkOffset;	//Receiver clock offset applied to epoch time and measurements
 	//Epoch observable data
 	int epochFlag;		//The type of data following this epoch record (observation, event, ...). See RINEX definition
 	int nSatsEpoch;		//Number of satellites or special records in current epoch
@@ -671,18 +723,22 @@ private:
 	vector <SatObsData> epochObs;	//A place to store observable data (pseudorange, phase, ...) for one epoch
 	//Epoch navigation data
 	struct SatNavData {	//defines storage for navigation data for a given GNSS satellite
-		double navTimeTag;	//a tag to identify the epoch of this data
+		double navTimeTag;	//a time tag to identify the epoch of this data:
+            //for GPS: seconds from GPS epoch, or GPS_week_number * 604800 + time_of_week. Week without roll-over. Seconds without leap seconds.
+            //for GAL: seconds from GPS epoch, or (GAL_week_number + 1024) * 604800 + time_of_week. Week without roll-over. Seconds without leap seconds.
+            //      The GAL epoch is the 1st GPS roll over, or 22/8/1999 00:00:00 UTC minus 13s., or 21/8/1999 23:59:47 UTC)
+            //for BDS: seconds from GPS epoch, or (BDS week_number + 1356) * 604800 + time_of_week + 14. Week without roll-over. Seconds without leap seconds.
+            //      The BDS epoch (1/1/2006 00:00:00 UTC) is GPS week 1356 tow 14
+            //for GLO: UTC seconds from GPS epoch plus 3h. It includes leap seconds.
 		char systemId;	//the system identification (G, E, R, ...)
 		int satellite;	//the PRN of the satellite navigation data belong
 		double broadcastOrbit[BO_MAXLINS][BO_MAXCOLS];	//the eigth lines of RINEX navigation data, with four parameters each
 		//constructor
-		SatNavData(double tT, char sys, int sat, double bo[BO_MAXLINS][BO_MAXCOLS]) {
+		SatNavData(double tT, char sys, int sat, double bo[][BO_MAXCOLS]) {
 			navTimeTag = tT;
 			systemId = sys;
 			satellite = sat;
-			for (int i=0; i<BO_MAXLINS; i++)
-				for (int j=0; j<BO_MAXCOLS; j++)
-					broadcastOrbit[i][j] = bo[i][j];
+			memcpy(broadcastOrbit, bo, sizeof(broadcastOrbit));
 		};
 		//define operator for comparisons and sorting
 		bool operator < (const SatNavData &param) const {
@@ -703,14 +759,15 @@ private:
 	//Logger
 	Logger* plog;		//the place to send logging messages
 	bool dynamicLog;	//true when created dynamically here, false when provided externally
-
 	//private methods
 	void setDefValues(RINEXversion v, Logger* p);
-	string fmtRINEXv2name(string designator, int week, double tow, char ftype);
-	string fmtRINEXv3name(string designator, int week, double tow, char ftype, string country);
+	void setFileDataType(char ftype, bool setCOMMs = false);
+	string fmtRINEXv2name(string designator, int week, double tow);
+	string fmtRINEXv3name(string designator, int week, double tow, string country);
 	void setLabelFlag(RINEXlabel label, bool flagVal=true);
 	bool getLabelFlag(RINEXlabel);
 	RINEXlabel checkLabel(char *);
+	RINEXlabel findLabelId(char *);
 	string valueLabel(RINEXlabel label, string toAppend = string());
 	int readV2ObsEpoch(FILE* input);
 	int readV3ObsEpoch(FILE* input);
@@ -723,7 +780,12 @@ private:
     unsigned int getSysIndex(char sysId);
 	int systemIndex(char sysCode);
 	string getSysDes(char s);
+	char getSysId(string s);
+	string getTimeDes(char s);
 	void setSuffixes();
-	void setSysToPrintId(string msg);
+	bool isIonoCorrection(RINEXlabel corr);
+	bool isTimeCorrection(RINEXlabel corr);
+	int idTimeCorrSource(char* buffer);
+	char* desTimeCorrSource(char* buffer, char system, int satNum);
 };
 #endif

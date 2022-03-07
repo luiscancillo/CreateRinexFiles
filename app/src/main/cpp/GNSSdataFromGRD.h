@@ -19,6 +19,7 @@
  *                  |and to take into account different states in tracking signals of each
  *                  |constellation and satellite. Only states providing unambiguous measurements
  *                  |will be cnsidered.
+ * <p>V1.2  |11/2019|Added the functionality to extract iono and time corrections to be included in RINEX header
  */
 #ifndef GNSSDATAFROMOSP_H
 #define GNSSDATAFROMOSP_H
@@ -30,18 +31,26 @@
 #include "Utilities.h"
 
 //@cond DUMMY
+//To identify GRD file types
+const string ORD_FILE_EXTENSION  = ".ORD";
+const string NRD_FILE_EXTENSION  = ".NRD";
+const int MIN_ORD_FILE_VERSION = 2;
+const int MAX_ORD_FILE_VERSION = 2;
+const int MIN_NRD_FILE_VERSION = 2;
+const int MAX_NRD_FILE_VERSION = 2;
+
 //The type of messages that GNSS Raw Data files or setup arguments can contain
 #define MT_EPOCH 1     //Epoch data
 #define MT_SATOBS 2    //Satellite observations data
-#define MT_SATNAV_GPS_L1_CA 10    //Satellite navigation data from GPS L1 C/A
-#define MT_SATNAV_GLONASS_L1_CA 11    //Satellite navigation data from GLONASS L1 C/A
-#define MT_SATNAV_GALILEO_INAV 12    //Satellite navigation data from Galileo I/NAV
-#define MT_SATNAV_GALILEO_FNAV 13    //Satellite navigation data from Galileo F/NAV
-#define MT_SATNAV_BEIDOU_D1 14    //Satellite navigation data from Beidou D1
-#define MT_SATNAV_GPS_L5_C 15    //Satellite navigation data from GPS L5 C
-#define MT_SATNAV_GPS_C2 16    //Satellite navigation data from GPS C2
-#define MT_SATNAV_GPS_L2_C 17    //Satellite navigation data from GPS L2 C
-#define MT_SATNAV_BEIDOU_D2 18    //Satellite navigation data from Beidou D2
+#define MT_SATNAV_GPS_L1_CA 3    //Satellite navigation data from GPS L1 C/A
+#define MT_SATNAV_GLONASS_L1_CA 4    //Satellite navigation data from GLONASS L1 C/A
+#define MT_SATNAV_GALILEO_INAV 5    //Satellite navigation data from Galileo I/NAV
+#define MT_SATNAV_GALILEO_FNAV 6    //Satellite navigation data from Galileo F/NAV
+#define MT_SATNAV_BEIDOU_D1 7    //Satellite navigation data from Beidou D1
+#define MT_SATNAV_GPS_L5_C 8    //Satellite navigation data from GPS L5 C
+#define MT_SATNAV_GPS_C2 9    //Satellite navigation data from GPS C2
+#define MT_SATNAV_GPS_L2_C 10    //Satellite navigation data from GPS L2 C
+#define MT_SATNAV_BEIDOU_D2 11    //Satellite navigation data from Beidou D2
 #define MT_SATNAV_UNKNOWN 40    //Satellite navigation data unknown type
 #define MT_GRDVER 50     //Observation or navigation raw data files version
 #define MT_PGM 51        //Program used to generate data (toRINEX Vx.x)
@@ -133,10 +142,11 @@ const MsgType msgTblTypes[] = {
 #define ADR_ST_CYCLE_SLIP 0x04  //accumulated delta range cycle slip detected
 #define ADR_ST_HALF_CYCLE_RESOLVED 0x08      //accumulated delta range half cycle resolved
 #define ADR_STATE_HALF_CYCLE_REPORTED 0x10
-//Constants usefull for computations
+//Constants useful for computations
 const double SPEED_OF_LIGTH_MxNS = 299792458.0 * 1E-9;    //in m/nanosec
 const double DOPPLER_FACTOR = 1E6 / 299792458.0;    //in Mm/sec
 const double WLFACTOR = 1.0E6 / 299792458.0;
+const int MASK8b = 0xFF;    //a bit mask for 8 bits
 /*
 const double C1CADJ = 299792458.0;	//to adjust C1C (pseudorrange L1 in meters) = C1CADJ (the speed of light) * clkOff
 const double L1CADJ = 1575420000.0;	//to adjust L1C (carrier phase in cycles) =  L1CADJ (L1 carrier frequency) * clkOff
@@ -159,10 +169,13 @@ const string LOG_MSG_ERROPEN("Error opening GRD file ");
 const string LOG_MSG_NINO("SATNAV record in OBS file");
 const string LOG_MSG_NONI("SATOBS record in NAV file");
 const string LOG_MSG_ERRO("Error reading ORD: ");
-const string LOG_MSG_INVM(" ignored invalid measurements");
-const string LOG_MSG_UNK(" ignored unknown measurements or GLO FCN");
+const string LOG_MSG_INVM(" measurement ignored, invalid tracking or carrier phase state");
+const string LOG_MSG_UNK(" ignored, wrong satellite or signal identification");
 const string LOG_MSG_INMP("Invalid nav message parameters");
-const string LOG_MSG_INSV("Invalid nav message satellite ");
+const string LOG_MSG_CORR(" Corrections completed.");
+const string LOG_MSG_FRM(" Frame completed.");
+const string LOG_MSG_SFR(" Subframe saved.");
+const string LOG_MSG_IOD(" IODs match.");
 const string LOG_MSG_OSIZ(" or size");
 const string LOG_MSG_NAVIG(". Ignored");
 const string LOG_MSG_UNKSELSYS("Unknown selected sys ");
@@ -173,12 +186,11 @@ const string MSG_COMMA(", ");
 const string MSG_SLASH("/");
 const string MSG_COLON(": ");
 const string MSG_NOT_IMPL("NOT IMPLEMENTED");
-//const string defaultSiteName = "PNT_";
 
 ///GPS definitions related to navigation messages
 #define GPS_L1_CA_MSGSIZE 40
 #define GPS_SUBFRWORDS 10
-#define GPS_MAXSUBFRS 5
+#define GPS_MAXSUBFRS 4
 //GPS prn are in the range 1-32
 #define GPS_MINPRN 1
 #define GPS_MAXPRN 32
@@ -189,19 +201,19 @@ const string MSG_NOT_IMPL("NOT IMPLEMENTED");
 #define GLO_STRWORDS 3
 #define GLO_MAXSTRS 5
 //Note: GLO satellite number ranges are:
-// 1-24 if Orbital Slot Number (OSN) given, or
-// 93-106 if Frequency Channel Number (FCN) given
+// 1-24 if Orbital Slot Number (OSN) is given, or
+// 93-106 if Frequency Channel Number (FCN) is given
 #define GLO_MINOSN 1
 #define GLO_MAXOSN 24
 #define GLO_MINFCN 93
 #define GLO_MAXFCN 106
-#define GLO_MAXSATELLITES 38
+#define GLO_MAXSATELLITES GLO_MAXOSN + (GLO_MAXFCN - GLO_MINFCN + 1)
 const double GLO_BAND_FRQ1 = 1602.0; //L1 band cnetral frequency
 const double GLO_SLOT_FRQ1 = 0.5625; //L1 frequency factor frq = 1602 + fcn * GLO_SLOT_FRQ in MHz
 const double GLO_BAND_FRQ2 = 1246.0; //L2 band cnetral frequency
 const double GLO_SLOT_FRQ2 = 0.4375; //L2 frequency factor frq = 1246 + fcn * GLO_SLOT_FRQ in MHz
-//An offset to translate FCN 93-106 to 25-38
-#define GLO_FCN2OSN (GLO_MINFCN - GLO_MAXOSN - 1)
+//An offset to translate FCN 93-106 to an index in the range 24-37
+#define GLO_FCN2OSN (GLO_MINFCN - GLO_MAXOSN)
 ///GALILEO constants related to navigation message
 //GALILEO prn are in the range 1-36
 //For Galileo I/NAV, each page contains 2 page parts, even and odd, with a total of 2x114 = 228 bits, (sync & tail excluded)
@@ -219,16 +231,22 @@ const double GLO_SLOT_FRQ2 = 0.4375; //L2 frequency factor frq = 1246 + fcn * GL
 //BDS definitions related to navigation messages
 #define BDSD1_MSGSIZE 40
 #define BDSD1_SUBFRWORDS 10
-#define BDSD1_MAXSUBFRS 3
+#define BDSD1_MAXSUBFRS 5
 #define BDS_MINPRN 1
-#define BDS_MAXPRN 32
-#define BDS_MAXSATELLITES 32
+#define BDS_MAXPRN 37
+#define BDS_MAXSATELLITES 37
 ///SBAS constants related to navigation message
 //SBAS prn are in the range 120-151 and 183-192
-//TODO define this data
+#define SBAS_MINPRN 120
+#define SBAS_MAXPRN 192
 ///QZSS constants related to navigation message
-//QZSS prn are in the range 193-200
-//TODO define this data
+//QZSS prn are in the range 193 - 200
+#define QZSS_MINPRN 193
+#define QZSS_MAXPRN 200
+///IRNSS constants related to navigation message
+//IRNSS prn are in the range 1 - 14
+//#define IRNSS_MINPRN 193
+//#define IRNSS_MAXPRN 200
 //@endcond
 
 /**GNSSdataFromOSP class defines data and methods used to acquire RINEX header and epoch data from a ORD file containing data acquired.
@@ -257,12 +275,15 @@ public:
     bool collectHeaderData(RinexData &, int, int);
     bool collectEpochObsData(RinexData &);
     bool collectNavData(RinexData &);
-    void processHdData(RinexData &, int, string);
+    bool processHdData(RinexData &, int, string);
     void processFilterData(RinexData &);
     string getMsgDescription(int );
+    int getMsgType(string );
 
 private:
     FILE* grdFile;  //GNSS raw data file
+	int ordVersion;	//GNSS observation raw data version
+	int nrdVersion;	//GNSS navigation raw data version
     int msgCount;   //a counter of messages read from the file
     struct GNSSsystem {	//Defines data for each GNSS system that can provide data to the RINEX file. Used for all versions
         char sysId;	//system identification: G (GPS), R (GLONASS), S (SBAS), E (Galileo). See RINEX V302 document: 3.5 Satellite numbers
@@ -283,7 +304,7 @@ private:
 	//Data structures to capture GPS navigation messages
 	struct GPSSubframeData {
 		bool hasData;
-		unsigned int words[GPS_SUBFRWORDS];
+        uint32_t words[GPS_SUBFRWORDS];
 	};
 	struct GPSFrameData {
 		bool hasData;
@@ -298,24 +319,34 @@ private:
 		uint32_t words[GLO_STRWORDS];
 	};
 	struct GLOFrameData {
-		bool hasData;
+		int frmNum;
 		GLOStrData gloSatStrings[GLO_MAXSTRS];
 	};
 	GLOFrameData gloSatFrame[GLO_MAXSATELLITES];
-	//a table to stablish OSN (Orbital Slot Number) - FCN (Frequency Channel Number)
-    //OSN are in the range 1 to 24. FCN are in the range -7 to + 6
-    //Values are extracted directly from almanac data.
-    //Also can be derived from measurements: OSN is satNum (if < 24) and FCN can be computed from the carrier frequency value.
-    //Android gives as satellite number values 100 + FCN when OSN is unknown
-    struct GLONASSfreq {	//A type to match GLONASS slots and carrier frequency numbers
-        int nA;				//The slot number (n in Almanac strings 6, 8, 10, 12, 14)
-        int strFhnA;		//The string number from where the carrier frequency number must be extracted
-        int hnA;            //the carrier frequency number (Hn in Almanac strings 7, 9, 11, 13, 15)
+	//A table to stablish OSN (Orbital Slot Number) - FCN (Frequency Channel Number) for GLONASS satellites
+    //OSN values are in the range 1 to 24. FCN are in the range -7 to + 6
+    //Values are extracted directly from string 4 (OSN), from observation carrier frequency data (FCN),
+    //or from almanac data (OSN and FCN).
+    //When the Android satellite numbers is in the range 1 to 24, this number is the OSN
+    //Android gives as satellite number the value 100 + FCN when its OSN is unknown.
+    //The index in the table is:
+    // - if satellite number is in the range 1 to 24, the own satellite number - 1
+    // - if satellite number is in the range 93 to 106, satellite number - 69 (values 24 to 37)
+    struct GLONASSosnfcn {
+        int osn;    //the OSN
+        int fcn;    //the FCN
+        bool fcnSet;    //FCN values have been set
     };
-	GLONASSfreq nAhnA[GLO_MAXSATELLITES];	//for each channel, the nA and frequency data
-    //TODO check if this varible shall be finally removed in Android
-    //the carrier frequency number (Hn in Almanac strings 7, 9, 11, 13, 15), or computed from observationa
-    //	int frqNum[GLO_MAXSATELLITES];
+    GLONASSosnfcn glonassOSN_FCN[GLO_MAXSATELLITES];
+    //A table to store data from GLONASS almanac on the nA (is the OSN) and HnA (is the FCN)
+    //nA-1 is the index in the table. It is extracted from strings 6, 8, 10, 12 or 14
+    //When and HnA value is known, it is translated to the above tableOSNFCN
+    struct GLONASSfreq {	//A type to match GLONASS slots and carrier frequency numbers
+        int satNum;      //the satellite number source of data
+        int strFhnA;	//The string number from where the carrier frequency number for this nA must be extracted
+        int frmFhnA;    //The frame number for the above string number
+    };
+	GLONASSfreq nAhnA[GLO_MAXOSN];
     //Data structures to capture Galileo I/NAV navigation messages
     struct GALINAVpageData {
         bool hasData;
@@ -335,46 +366,56 @@ private:
     };
     struct BDSD1FrameData {
         bool hasData;
+        //index for subframes:0 is subframe 1; 1 is subfr 2; 2 is subfr 3; 4 is subfr 5 page 9; 5 is subfr 5 page 10
         BDSD1SubframeData bdsSatSubframes[BDSD1_MAXSUBFRS];
     };
     BDSD1FrameData bdsSatFrame[BDS_MAXSATELLITES];
     //number of BDS weeks roll over
     int nBDSrollOver;
-    //Constant data used to convert broadcast navigation data (contains only mantissas) to ephemris values
-    double GPS_SCALEFACTOR[BO_MAXLINS][BO_MAXCOLS];	//the scale factors to apply to GPS broadcast orbit data to obtain ephemeris (see GPS ICD)
-    double GAL_SCALEFACTOR[BO_MAXLINS][BO_MAXCOLS];	//the scale factors to apply to Galileo broadcast orbit data to obtain ephemeris (see Galileo OS ICD)
-    double GLO_SCALEFACTOR[BO_MAXLINS_GLO][BO_MAXCOLS];	//the scale factors to apply to GLONASS broadcast orbit data to obtain ephemeris (see GLONASS ICD)
+    //Constant data used to convert to RINEX broadcast orbit ephemeris values the broadcast orbit navigation data from satellite messages which contains only mantissas
+    //Note: BO_xxxx constant values defined in RinexData.h
+    double GPS_SCALEFACTOR[BO_LINSTOTAL][BO_MAXCOLS];	//the scale factors to apply to GPS broadcast orbit data to obtain ephemeris (see GPS ICD)
+    double GLO_SCALEFACTOR[BO_LINSTOTAL][BO_MAXCOLS];	//the scale factors to apply to GLONASS broadcast orbit data to obtain ephemeris (see GLONASS ICD)
+    double GAL_SCALEFACTOR[BO_LINSTOTAL][BO_MAXCOLS];	//the scale factors to apply to Galileo broadcast orbit data to obtain ephemeris (see Galileo OS ICD)
+    double BDS_SCALEFACTOR[BO_LINSTOTAL][BO_MAXCOLS];	//the scale factors to apply to BDS broadcast orbit data to obtain ephemeris (see BDS ICD)
     double GPS_URA[16];			    //the User Range Accuracy values corresponding to URA index in the GPS SV broadcast data (see GPS ICD)
-    double BDS_SCALEFACTOR[BO_MAXLINS][BO_MAXCOLS];	//the scale factors to apply to BDS broadcast orbit data to obtain ephemeris (see BDS ICD)
     double BDS_URA[16];			    //the User Range Accuracy values corresponding to URA index in the BDS SV broadcast data (see BDS ICD)
     //Logger
     Logger* plog;		//the place to send logging messages
     bool dynamicLog;	//true when created dynamically here, false when provided externally
-
-    //TODO modify bo & bom to include in bo[8] ionospheric corrections
-    //TODO modify bo & bom to include in bo[9] time corrections
-    //TODO modify bo & bom to include in bo[10] leap seconds
     void setInitValues();
-    bool collectGPSL1CAEpochNav(RinexData &rinex, int msgType);
-    bool readGLOL1CAEpochNav(char &constId, int &satNum, int &strnum, int &frame, uint32_t wd[]);
-    void extractGPSEphemeris(int sv, int (&bom)[BO_MAXLINS][BO_MAXCOLS]);
-    double scaleGPSEphemeris(int (&bom)[BO_MAXLINS][BO_MAXCOLS], double (&bo)[BO_MAXLINS][BO_MAXCOLS]);
-    bool collectGLOL1CAEpochNav(RinexData &rinex, int msgType);
-    void extractGLOEphemeris(int sat, int (&bom)[BO_MAXLINS][BO_MAXCOLS], int& slot);
-    double scaleGLOEphemeris(int (&bom)[BO_MAXLINS][BO_MAXCOLS], double (&bo)[BO_MAXLINS][BO_MAXCOLS]);
-    int gloSatIdx(int);
-    int gloNumFromFCN(int satNum, char band, double carrFrq, bool updTbl);
-    bool collectGALINEpochNav(RinexData &rinex, int msgType);
-	void extractGALINEphemeris(int sv, int (&bom)[BO_MAXLINS][BO_MAXCOLS]);
-    double scaleGALEphemeris(int (&bom)[BO_MAXLINS][BO_MAXCOLS], double (&bo)[BO_MAXLINS][BO_MAXCOLS]);
-    bool collectBDSD1EpochNav(RinexData &rinex, int msgType);
-    void extractBDSD1Ephemeris(int sv, int (&bom)[BO_MAXLINS][BO_MAXCOLS]);
-    double scaleBDSEphemeris(int (&bom)[BO_MAXLINS][BO_MAXCOLS], double (&bo)[BO_MAXLINS][BO_MAXCOLS]);
 
+    bool collectGPSL1CAEphemeris(RinexData &rinex, int msgType);
+    bool collectGPSL1CACorrections(RinexData &rinex, int msgType);
+    bool readGPSL1CANavMsg(char &constId, int &satNum, int &strnum, int &frame, string &logMsg);
+    void extractGPSL1CAEphemeris(int sv, int (&bom)[BO_LINSTOTAL][BO_MAXCOLS]);
+    double scaleGPSEphemeris(int (&bom)[BO_LINSTOTAL][BO_MAXCOLS], double (&bo)[BO_LINSTOTAL][BO_MAXCOLS]);
+
+    bool collectGLOL1CAEphemeris(RinexData &rinex, int msgType);
+    bool collectGLOL1CACorrections(RinexData &rinex, int msgType);
+    bool readGLOL1CANavMsg(char &constId, int &satNum, int &satIdx, int &strnum, int &frame, string &logMsg);
+    void extractGLOL1CAEphemeris(int sat, int (&bom)[BO_LINSTOTAL][BO_MAXCOLS], int& slot);
+    double scaleGLOEphemeris(int (&bom)[BO_LINSTOTAL][BO_MAXCOLS], double (&bo)[BO_LINSTOTAL][BO_MAXCOLS]);
+    int gloSatIdx(int);
+    int gloOSN(int satNum, char band = '1', double carrFrq = 0.0, bool updTbl = false);
+
+    bool collectGALINEphemeris(RinexData &rinex, int msgType);
+    bool collectGALINCorrections(RinexData &rinex, int msgType);
+	bool readGALINNavMsg(char &constId, int &satNum, int &strnum, int &frame, string &logMsg);
+	void extractGALINEphemeris(int sv, int (&bom)[BO_LINSTOTAL][BO_MAXCOLS]);
+    double scaleGALEphemeris(int (&bom)[BO_LINSTOTAL][BO_MAXCOLS], double (&bo)[BO_LINSTOTAL][BO_MAXCOLS]);
+
+    bool collectBDSD1Ephemeris(RinexData &rinex, int msgType);
+    bool collectBDSD1Corrections(RinexData &rinex, int msgType);
+    bool readBDSD1NavMsg(char &constId, int &satNum, int &strnum, int &frame, string &logMsg);
+    void extractBDSD1Ephemeris(int sv, int (&bom)[BO_LINSTOTAL][BO_MAXCOLS]);
+    double scaleBDSEphemeris(int (&bom)[BO_LINSTOTAL][BO_MAXCOLS], double (&bo)[BO_LINSTOTAL][BO_MAXCOLS]);
+
+    bool isGoodGRDver(string extension, int version);
     bool addSignal(char system, string signal);
     void skipToEOM();
     void setHdSys(RinexData &);
-    void trimBuffer(char*, const char*);
+    bool trimBuffer(char*, const char*);
     void llaTOxyz( const double, const double, const double, double &, double &, double &);
     double collectAndSetEpochTime(RinexData& rinex, double& tow, int& numObs, string msg);
     vector<string> getElements(string, string);

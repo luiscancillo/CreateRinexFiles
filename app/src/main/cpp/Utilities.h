@@ -16,6 +16,8 @@
  *<p>---------------------------------
  *<p>V1.0	|2/2015	|First release
  *<p>V2.0	|2/2016	|Added functions
+ *<p>V3.0   |12/2019|Removed dependency from ctime functions for GPS time computation by adding Modified Julian day computations
+ *                  |Added functions and change names of some existing ones
  */
 #ifndef UTILITIES_H
 #define UTILITIES_H
@@ -25,19 +27,29 @@
 
 using namespace std;
 
-vector<string> getTokens (string source, char separator);			//extract tokens from a string
-bool isBlank (char* buffer, int n);		//checks if all chars in the buffer are spaces
-void formatGPStime (char* buffer, int bufferSize, const char* fmtYtoM, const char * fmtSec, int week, double tow); //convert to printable format the given GPS time
-void formatLocalTime (char* buffer, int bufferSize, const char* fmt);		//convert to printable format the computer current local time
-int getGPSweek (int year, int month, int day, int hour, int min, float sec); //computes GPS weeks from the GPS ephemeris (6/1/1980) to a given date
-int getGPSweek (double secs); //computes GPS weeks from the GPS ephemeris (6/1/1980) to a given instant
-double getGPStow (int year, int month, int day, int hour, int min, float sec); //computes the TOW for a given date
-double getGPStow (double secs); //computes the GPS TOW for a given instant
-void setWeekTow (int year, int month, int day, int hour, int min, double sec, int & week, double & tow);
-double getSecsGPSEphe (int year, int month, int day, int hour, int min, float sec); //compute instant in seconds from the GPS ephemeris (6/1/1980) to a given date and time
-double getSecsGPSEphe (int week, double tow); //compute instant seconds from the GPS ephemeris (6/1/1980) to a given GPS time (week and tow)
+vector<string> getTokens (string source, char separator);
+bool isBlank (char* buffer, int n);
 string strToUpper(string strToConvert);
 int getTwosComplement(unsigned int number, int nbits);
 int getSigned(unsigned int number, int nbits);
 unsigned int reverseWord(unsigned int wordToReverse, int nBits=32);
+char getFirstDigit(string intNum, char defChar = ' ');
+
+void formatUTCtime(char* buffer,  size_t bufferSize, const char* fmt);
+double getUTCinstant(int year, int month, int day, int hour, int min, double sec);
+int getWeek(double instant);
+double getTow(double instant);
+double getInstant(int week, double tow);
+int getMjd(int year, int month, int day);
+int getMjdFromGPST(int week, double tow);
+void mjdTodate(int mjd, int &year, int &month, int &day);
+
+void formatGPStime (char* buffer,  size_t bufferSize, const char* fmtYtoM, const char * fmtSec, int week, double tow); //convert to printable format the given GPS time
+int getWeekGPSdate (int year, int month, int day, int hour, int min, double sec); //computes GPS weeks from the GPS ephemeris (6/1/1980) to a given date
+double getTowGPSdate (int year, int month, int day, int hour, int min, double sec); //computes the TOW for a given date
+void getWeekTowGPSdate (int year, int month, int day, int hour, int min, double sec, int & week, double & tow);
+double getInstantGPSdate (int year, int month, int day, int hour, int min, double sec); //compute instant in seconds from the GPS ephemeris (6/1/1980) to a given date and time
+int getWeekGNSSinstant (double secs); //computes weeks from the ephemeris to a given instant
+double getTowGNSSinstant (double secs); //computes the TOW for a given instant
+double getInstantGNSStime (int week, double tow); //compute instant seconds from the ephemeris to a given GNSS time (week and tow)
 #endif
