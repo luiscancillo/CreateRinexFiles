@@ -1,10 +1,11 @@
 /**
  * native-lib.ccp contains the interface routine to be called from Java to collect
- * data from raw data files and generate the related RINEX files.
+ * data from raw data files (.ORD for Observation Raw Data, and .NRD for Navigation Raw Data)
+ * and generate the related RINEX files.
  *
- *Copyright 2018 Francisco Cancillo
+ *Copyright 2015, 2021 by Francisco Cancillo & Luis Cancillo
  *<p>
- *This file is part of the toRINEX tool.
+ *This file is part of the toRINEX APP.
  *<p>Ver.	|Date	|Reason for change
  *<p>---------------------------------
  *<p>V1.0	|6/2018	|First release, not fully tested due to lack of device providing nav data

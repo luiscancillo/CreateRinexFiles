@@ -1,9 +1,9 @@
 /** @file Logger.h
- *A simple logger class to tag and record loging messages.
+ *A simple logger class to tag and record logging messages.
  *
- *Copyright 2015 Francisco Cancillo
+ *Copyright 2015, 2021 by Francisco Cancillo & Luis Cancillo
  *<p>
- *This file is part of the RXtoRINEX tool.
+ *This file is part of the RXtoRINEX tools and toRINEX APP.
  *<p>
  *RXtoRINEX is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
  *as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.

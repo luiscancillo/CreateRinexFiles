@@ -9,9 +9,9 @@
  * Both contain also records with relevant data from the device or provided by the user to be used in
  * the RINEX files header.
  *
- *Copyright 2018 Francisco Cancillo
+ *Copyright 2015, 2021 by Francisco Cancillo & Luis Cancillo
  *<p>
- *This file is part of the toRINEX tool.
+ *This file is part of the toRINEX APP.
  *<p>Ver.	|Date	|Reason for change
  *<p>---------------------------------
  *<p>V1.0	|6/2018	|First release, not fully tested due to lack of device providing nav data
@@ -249,20 +249,24 @@ const double GLO_SLOT_FRQ2 = 0.4375; //L2 frequency factor frq = 1246 + fcn * GL
 //#define IRNSS_MAXPRN 200
 //@endcond
 
-/**GNSSdataFromOSP class defines data and methods used to acquire RINEX header and epoch data from a ORD file containing data acquired.
+/**GNSSdataFromOSP class defines data and methods used to acquire RINEX header and epoch data from a
+ * ORD file containing data acquired.
  * Such header and epoch data can be used to generate and print RINEX files.
  *<p>
  * A program using GNSSdataFromGRD would perform the following steps:
- *	-# Declare a GNSSdataFromGRD object stating the receiver, the file name with the raw data, and optionally the logger to be used
+ *	-# Declare a GNSSdataFromGRD object stating the receiver, the file name with the raw data, and
+ *		optionally the logger to be used
  *	-# Collect header data and save them into an object of RinexData class using collectHeaderData methods
- *	-# Header data acquired can be used to generate / print RINEX or RTK files (see available methods in RinexData and RTKobservation classes for that)
+ *	-# Header data acquired can be used to generate / print RINEX or RTK files (see available methods
+ *		in RinexData and RTKobservation classes for that)
  *	-# As header data may be sparse among the raw data file, rewind it before performing any other data acquisition
  *	-# Acquire an epoch data and save them into an object of RinexData class using acqEpochData methods
- *	-# Epoch data acquired can be used to generate / print RINEX file epoch (see available methods in RinexData classes)
+ *	-# Epoch data acquired can be used to generate / print RINEX file epoch (see available methods in
+ *		RinexData classes)
  *	-# Repeat above steps 5 and 6 while epoch data are available in the input file.
  *<p>
- * This version implements processing of ...
- * Each ORD message starts with ...
+ * This version implements processing of ...TODO
+ * Each ORD message starts with ...TODO
  */
 class GNSSdataFromGRD {
 public:

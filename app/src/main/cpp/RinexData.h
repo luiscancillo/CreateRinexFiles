@@ -4,7 +4,7 @@
  * Methods are provided to store data into RinexData objects, print them to RINEX files,
  * and to perform the reverse operation: read RINEX files data and store them into RinexData objects.
  *
- *Copyright 2015,2019 Francisco Cancillo
+ *Copyright 2015, 2021 by Francisco Cancillo & Luis Cancillo
  *<p>
  *This file is part of the toRINEX tool.
  *<p>
